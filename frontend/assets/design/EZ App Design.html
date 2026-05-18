@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>EZ — Life Made Easy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="styles.css"/>
+  <style>
+    html, body { margin:0; padding:0; background:#f0eee9; font-family:'Plus Jakarta Sans', system-ui, sans-serif; }
+    #root { width:100%; min-height:100vh; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React + Babel -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <!-- Starter components -->
+  <script type="text/babel" src="ios-frame.jsx"></script>
+  <script type="text/babel" src="design-canvas.jsx"></script>
+
+  <!-- EZ design system + screens -->
+  <script type="text/babel" src="design-system.jsx"></script>
+  <script type="text/babel" src="screen1-home.jsx"></script>
+  <script type="text/babel" src="screen2-thinking.jsx"></script>
+  <script type="text/babel" src="screen1b-composer.jsx"></script>
+  <script type="text/babel" src="screen3-results.jsx"></script>
+  <script type="text/babel" src="screen4-confirm.jsx"></script>
+
+  <!-- App -->
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect } = React;
+    const PHONE_W = 340;
+    const PHONE_H = 720;
+
+    // Wrap a screen in the iOS device frame
+    function Phone({ children, w = PHONE_W, h = PHONE_H }) {
+      return (
+        <IOSDevice width={w} height={h}>
+          <div style={{ width:'100%', height:'100%' }}>{children}</div>
+        </IOSDevice>
+      );
+    }
+
+    // Interactive single-phone flow
+    function InteractiveFlow() {
+      const [screen, setScreen] = useState('home');
+      // Re-mount thinking screen each visit so its animation replays
+      const [thinkKey, setThinkKey] = useState(0);
+
+      const go = (s) => {
+        if (s === 'thinking') setThinkKey(k => k+1);
+        setScreen(s);
+      };
+
+      return (
+        <Phone>
+          {screen === 'home' && (
+            <HomeScreen onSearch={() => go('thinking')} />
+          )}
+          {screen === 'thinking' && (
+            <ThinkingScreen
+              key={thinkKey}
+              autoplay
+              loop={false}
+              onComplete={() => go('results')}
+            />
+          )}
+          {screen === 'results' && (
+            <ResultsScreen onBook={() => go('confirm')} />
+          )}
+          {screen === 'confirm' && (
+            <ConfirmScreen
+              onTrack={() => go('home')}
+              onHome={() => go('home')}
+            />
+          )}
+        </Phone>
+      );
+    }
+
+    // Floating step nav above the interactive phone
+    function FlowNav({ value, onChange }) {
+      const steps = [
+        { k:'home', l:'1 · Home' },
+        { k:'compose', l:'2 · Compose' },
+        { k:'thinking', l:'3 · Thinking' },
+        { k:'results', l:'4 · Results' },
+        { k:'confirm', l:'5 · Confirm' },
+      ];
+      return (
+        <div style={{
+          display:'flex', gap:6, padding:6,
+          background:'#fff', borderRadius:999,
+          border:'1px solid rgba(0,0,0,.08)',
+          boxShadow:'0 4px 14px rgba(0,0,0,.06)',
+          fontFamily:'Plus Jakarta Sans, system-ui',
+        }}>
+          {steps.map(s => (
+            <button key={s.k} onClick={() => onChange(s.k)} style={{
+              border:0, cursor:'pointer',
+              padding:'7px 12px', borderRadius:999,
+              fontWeight:700, fontSize:12, letterSpacing:'-0.01em',
+              background: value===s.k ? '#141414' : 'transparent',
+              color: value===s.k ? '#FCD24A' : '#3D3A35',
+            }}>{s.l}</button>
+          ))}
+        </div>
+      );
+    }
+
+    // Phone wrapper with external step nav (for the interactive artboard)
+    function InteractivePhoneWithNav() {
+      const [screen, setScreen] = useState('home');
+      const [thinkKey, setThinkKey] = useState(0);
+      const go = (s) => {
+        if (s === 'thinking') setThinkKey(k => k+1);
+        setScreen(s);
+      };
+      return (
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:14 }}>
+          <FlowNav value={screen} onChange={go}/>
+          <Phone>
+            {screen === 'home' && <HomeScreen onSearch={() => go('compose')} />}
+            {screen === 'compose' && (
+              <ComposerScreen onBack={() => go('home')} onSend={() => go('thinking')} />
+            )}
+            {screen === 'thinking' && (
+              <ThinkingScreen key={thinkKey} autoplay loop={false}
+                onComplete={() => go('results')} />
+            )}
+            {screen === 'results' && <ResultsScreen onBook={() => go('confirm')} />}
+            {screen === 'confirm' && (
+              <ConfirmScreen onTrack={() => go('home')} onHome={() => go('home')} />
+            )}
+          </Phone>
+        </div>
+      );
+    }
+
+    function App() {
+      return (
+        <DesignCanvas title="EZ · Life Made Easy" subtitle="AI-powered home services · Hi-fi mobile UI">
+
+          <DCSection
+            id="flow"
+            title="Interactive flow"
+            subtitle="Tap the search bar → watch the agent think → pick a pro → confirm. Use the segmented control to jump.">
+            <DCArtboard id="interactive" label="Live prototype" width={PHONE_W + 40} height={PHONE_H + 80}>
+              <div style={{
+                width:'100%', height:'100%', display:'grid', placeItems:'center',
+                background:'#f0eee9',
+              }}>
+                <InteractivePhoneWithNav/>
+              </div>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection
+            id="screens"
+            title="Screens"
+            subtitle="Each frame in isolation — Home · Agent Thinking · Results · Confirmation.">
+            <DCArtboard id="s1" label="01 · Home / Input" width={PHONE_W} height={PHONE_H}>
+              <Phone>
+                <HomeScreen onSearch={() => {}} />
+              </Phone>
+            </DCArtboard>
+            <DCArtboard id="s1b" label="02 · Composer · AI Input" width={PHONE_W} height={PHONE_H}>
+              <Phone>
+                <ComposerScreen onBack={() => {}} onSend={() => {}} />
+              </Phone>
+            </DCArtboard>
+            <DCArtboard id="s2" label="03 · Agent Thinking · HERO" width={PHONE_W} height={PHONE_H}>
+              <Phone>
+                <ThinkingScreen autoplay loop onComplete={() => {}} />
+              </Phone>
+            </DCArtboard>
+            <DCArtboard id="s3" label="04 · Top 3 Providers" width={PHONE_W} height={PHONE_H}>
+              <Phone>
+                <ResultsScreen onBook={() => {}} />
+              </Phone>
+            </DCArtboard>
+            <DCArtboard id="s4" label="05 · Booking Confirmed" width={PHONE_W} height={PHONE_H}>
+              <Phone>
+                <ConfirmScreen onTrack={() => {}} onHome={() => {}} />
+              </Phone>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection
+            id="ds"
+            title="Design system"
+            subtitle="Tokens — colors, type, components used across the app.">
+            <DCArtboard id="palette" label="Color & Type" width={520} height={420}>
+              <SystemArtboard/>
+            </DCArtboard>
+          </DCSection>
+
+        </DesignCanvas>
+      );
+    }
+
+    function SystemArtboard() {
+      const swatches = [
+        ['#FCD24A','EZ Yellow','--ez-yellow'],
+        ['#FFE988','Yellow Soft','--ez-yellow-soft'],
+        ['#FFF5C2','Yellow Glow','--ez-yellow-glow'],
+        ['#E8B617','Yellow Deep','--ez-yellow-deep'],
+        ['#141414','Ink','--ez-ink'],
+        ['#4A4742','Ink Soft','--ez-ink-soft'],
+        ['#8B8576','Muted','--ez-muted'],
+        ['#FBF8F1','Cream','--ez-cream'],
+        ['#ECE5D3','Border','--ez-border'],
+        ['#16A34A','Success','--ez-success'],
+      ];
+      return (
+        <div className="ez-app" style={{
+          width:'100%', height:'100%', background:'#FBF8F1',
+          padding:'22px 24px', fontFamily:'var(--ez-sans)',
+        }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:'var(--ez-yellow)',
+              display:'grid', placeItems:'center' }}>
+              <EZLogoImg size={22}/>
+            </div>
+            <div>
+              <div style={{ fontFamily:'var(--ez-display)', fontSize:20, fontWeight:600, letterSpacing:'-0.02em' }}>
+                Life Made <span style={{ display:'inline-block', verticalAlign:'-3px', marginLeft:2 }}>
+                  <EZLogoImg size={18}/>
+                </span>
+              </div>
+              <div style={{ fontSize:11, color:'var(--ez-muted)', fontWeight:600 }}>EZ Design System v1</div>
+            </div>
+          </div>
+
+          <div style={{ fontSize:10.5, fontWeight:800, color:'var(--ez-muted)', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:6 }}>Palette</div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:6, marginBottom:14 }}>
+            {swatches.map(([hex,name,tok])=>(
+              <div key={hex} style={{ borderRadius:10, overflow:'hidden', border:'1px solid var(--ez-border)', background:'#fff' }}>
+                <div style={{ height:42, background:hex }}/>
+                <div style={{ padding:'5px 7px' }}>
+                  <div style={{ fontSize:10, fontWeight:800 }}>{name}</div>
+                  <div style={{ fontFamily:'var(--ez-mono)', fontSize:9, color:'var(--ez-muted)' }}>{hex}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ fontSize:10.5, fontWeight:800, color:'var(--ez-muted)', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:6 }}>Typography</div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:14 }}>
+            <div style={{ padding:10, background:'#fff', borderRadius:12, border:'1px solid var(--ez-border)' }}>
+              <div style={{ fontFamily:'var(--ez-display)', fontSize:24, fontWeight:600, letterSpacing:'-0.02em', lineHeight:1 }}>Aa</div>
+              <div style={{ fontSize:10, color:'var(--ez-muted)', marginTop:4, fontWeight:700 }}>Bricolage Grotesque · Display</div>
+            </div>
+            <div style={{ padding:10, background:'#fff', borderRadius:12, border:'1px solid var(--ez-border)' }}>
+              <div style={{ fontFamily:'var(--ez-sans)', fontSize:20, fontWeight:700 }}>Aa</div>
+              <div style={{ fontSize:10, color:'var(--ez-muted)', marginTop:4, fontWeight:700 }}>Plus Jakarta Sans · UI</div>
+            </div>
+          </div>
+
+          <div style={{ fontSize:10.5, fontWeight:800, color:'var(--ez-muted)', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:6 }}>Components</div>
+          <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+            <PillBtn variant="primary" style={{ padding:'8px 14px', fontSize:12 }}>Book Now</PillBtn>
+            <PillBtn variant="yellow" style={{ padding:'8px 14px', fontSize:12 }}>AI Pick</PillBtn>
+            <PillBtn variant="soft" style={{ padding:'8px 14px', fontSize:12 }}>View Profile</PillBtn>
+            <Chip icon={Icon.ac('#141414',12)} label="AC Repair" active/>
+            <Chip icon={Icon.wrench('#141414',12)} label="Plumber"/>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
