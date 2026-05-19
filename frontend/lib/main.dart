@@ -67,6 +67,10 @@ class _AuthGateState extends State<_AuthGate> {
 
   void _onSplashComplete() {
     _splashDone = true;
+    if (!_authCheckDone) {
+      _destination = const AuthScreen();
+      _authCheckDone = true;
+    }
     _tryNavigate();
   }
 

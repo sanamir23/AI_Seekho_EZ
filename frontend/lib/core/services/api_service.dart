@@ -10,7 +10,7 @@ import '../models/booking.dart';
 
 /// Base URL of the FastAPI backend.
 String get _kBaseUrl {
-  return 'http://192.168.18.130:8000';
+  return 'http://192.168.100.158:8000';
 }
 
 const _kTokenKey = 'ez_access_token';

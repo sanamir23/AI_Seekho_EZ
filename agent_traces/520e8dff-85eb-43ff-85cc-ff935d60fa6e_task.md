@@ -1,0 +1,11 @@
+- [x] Task 0: Sync Backend
+- [x] Task 1: API Audit & Integration (`agent_response.dart`, `api_service.dart`)
+- [x] Task 3: Splash Screen Enhancement (`splash_screen.dart`)
+- [x] Task 4: Voice Feature Fix (add dependencies, mic permissions, recording logic)
+- [x] Task 2, 5, 6: Unified Chat Flow & Dynamic Thinking (`chat_screen.dart`, route from `home_screen.dart`)
+- [x] Task 7: Generate academic submission implementation plan (to be done at the very end)
+- [x] Create `chat_screen.dart` to consolidate composer, thinking, and results
+- [x] Update `home_screen.dart` to route to `chat_screen.dart`
+- [x] Configure `record` and `path_provider` dependencies for voice input
+- [x] Add explicit Android `RECORD_AUDIO` and `WRITE_EXTERNAL_STORAGE` permissions
+- [x] Add iOS `NSMicrophoneUsageDescription` permissiond)
