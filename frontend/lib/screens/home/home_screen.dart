@@ -6,9 +6,9 @@ import '../../core/theme/ez_colors.dart';
 import '../../core/widgets/ez_chip.dart';
 import '../../core/widgets/bottom_nav_bar.dart';
 import '../../core/services/api_service.dart';
-import '../../core/models/booking.dart';
 import '../composer/chat_screen.dart';
 import '../auth/auth_screen.dart';
+import 'bookings_tab.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -21,9 +21,6 @@ class _HomeScreenState extends State<HomeScreen> {
   int _activeChip = 0;
   int _activeNavIndex = 0;
 
-  // API state
-  List<BookingOut> _bookings = [];
-  bool _bookingsLoading = false;
   String _displayName = 'Ahmad';
 
   final _services = const [
@@ -49,7 +46,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadData() async {
-    // Load display name
     final dn = await ApiService.instance.getSavedDisplayName();
     final email = await ApiService.instance.getSavedEmail();
     if (mounted) {
@@ -60,17 +56,6 @@ class _HomeScreenState extends State<HomeScreen> {
           _displayName = email.split('@').first;
         }
       });
-    }
-
-    // Load bookings
-    setState(() => _bookingsLoading = true);
-    try {
-      final bookings = await ApiService.instance.listBookings();
-      if (mounted) setState(() => _bookings = bookings);
-    } catch (_) {
-      // silently fail — show static content
-    } finally {
-      if (mounted) setState(() => _bookingsLoading = false);
     }
   }
 
@@ -97,7 +82,9 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Column(
         children: [
           Expanded(
-            child: CustomScrollView(
+            child: _activeNavIndex == 1
+                ? const BookingsTab()
+                : CustomScrollView(
               slivers: [
                 // Ambient header background
                 SliverToBoxAdapter(
@@ -141,7 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           color: EzColors.border, width: 1),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: EzColors.ink.withOpacity(0.04),
+                                          color: EzColors.ink.withValues(alpha:0.04),
                                           blurRadius: 6,
                                           offset: const Offset(0, 2),
                                         )
@@ -210,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                             color: EzColors.white, width: 2),
                                         boxShadow: [
                                           BoxShadow(
-                                            color: EzColors.ink.withOpacity(0.06),
+                                            color: EzColors.ink.withValues(alpha:0.06),
                                             blurRadius: 6,
                                           )
                                         ],
@@ -293,12 +280,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           border: Border.all(color: EzColors.border, width: 1),
                           boxShadow: [
                             BoxShadow(
-                              color: EzColors.ink.withOpacity(0.04),
+                              color: EzColors.ink.withValues(alpha:0.04),
                               blurRadius: 4,
                               offset: const Offset(0, 1),
                             ),
                             BoxShadow(
-                              color: EzColors.ink.withOpacity(0.08),
+                              color: EzColors.ink.withValues(alpha:0.08),
                               blurRadius: 28,
                               offset: const Offset(0, 12),
                             ),
@@ -360,7 +347,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 shape: BoxShape.circle,
                                 boxShadow: [
                                   BoxShadow(
-                                    color: EzColors.ink.withOpacity(0.18),
+                                    color: EzColors.ink.withValues(alpha:0.18),
                                     blurRadius: 12,
                                     offset: const Offset(0, 4),
                                   )
@@ -478,11 +465,15 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
 
           // ── Bottom nav ──
-          EzBottomNav(activeIndex: 0),
+          EzBottomNav(
+            activeIndex: _activeNavIndex,
+            onTap: (i) => setState(() => _activeNavIndex = i),
+          ),
         ],
       ),
     );
   }
+
 }
 
 // ─── Helpers ───────────────────────────────────────────────────
@@ -502,7 +493,7 @@ class _IconCircleBtn extends StatelessWidget {
         border: Border.all(color: EzColors.border),
         boxShadow: [
           BoxShadow(
-              color: EzColors.ink.withOpacity(0.04),
+              color: EzColors.ink.withValues(alpha:0.04),
               blurRadius: 6,
               offset: const Offset(0, 2)),
         ],
@@ -530,7 +521,7 @@ class _PopularItem {
 
 class _PopularCard extends StatelessWidget {
   final _PopularItem item;
-  const _PopularCard({super.key, required this.item});
+  const _PopularCard({required this.item});
 
   @override
   Widget build(BuildContext context) {
@@ -542,7 +533,7 @@ class _PopularCard extends StatelessWidget {
         border: Border.all(color: EzColors.border, width: 1),
         boxShadow: [
           BoxShadow(
-            color: EzColors.ink.withOpacity(0.04),
+            color: EzColors.ink.withValues(alpha:0.04),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -598,7 +589,7 @@ class _AmbientPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFF141414).withOpacity(0.07)
+      ..color = const Color(0xFF141414).withValues(alpha:0.07)
       ..style = PaintingStyle.fill;
 
     // Simple house shapes
@@ -625,7 +616,7 @@ class _AmbientPainter extends CustomPainter {
 
       // Body
       final bodyPaint = Paint()
-        ..color = const Color(0xFF141414).withOpacity(0.05)
+        ..color = const Color(0xFF141414).withValues(alpha:0.05)
         ..style = PaintingStyle.fill;
       canvas.drawRect(
         Rect.fromLTRB(left + 2, bottom, right - 2, size.height),
@@ -637,12 +628,12 @@ class _AmbientPainter extends CustomPainter {
     canvas.drawCircle(
       Offset(size.width * 0.82, size.height * 0.22),
       20,
-      Paint()..color = const Color(0xFFFCD24A).withOpacity(0.55),
+      Paint()..color = const Color(0xFFFCD24A).withValues(alpha:0.55),
     );
     canvas.drawCircle(
       Offset(size.width * 0.82, size.height * 0.22),
       13,
-      Paint()..color = const Color(0xFFFCD24A).withOpacity(0.85),
+      Paint()..color = const Color(0xFFFCD24A).withValues(alpha:0.85),
     );
   }
 

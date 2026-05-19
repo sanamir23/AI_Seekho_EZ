@@ -30,6 +30,9 @@ class EzApp extends StatelessWidget {
 }
 
 /// Shows splash, then checks stored token, then routes to Home or Auth.
+///
+/// The timer only starts AFTER the first frame is painted so the splash
+/// is always visible — even on slow devices or cold starts.
 class _AuthGate extends StatefulWidget {
   const _AuthGate();
 
@@ -38,37 +41,51 @@ class _AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<_AuthGate> {
+  bool _navigating = false;
+  bool _authCheckDone = false;
+  bool _splashDone = false;
+  Widget? _destination;
+
   @override
   void initState() {
     super.initState();
-    _check();
+    // Start auth check immediately after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) => _check());
   }
 
   Future<void> _check() async {
-    // Brief splash delay so the splash screen is visible
-    await Future.delayed(const Duration(milliseconds: 2500));
+    final user = await ApiService.instance.me().timeout(
+      const Duration(seconds: 4),
+      onTimeout: () => null,
+    );
     if (!mounted) return;
+    
+    _destination = user != null ? const HomeScreen() : const AuthScreen();
+    _authCheckDone = true;
+    _tryNavigate();
+  }
 
-    final user = await ApiService.instance.me();
-    if (!mounted) return;
+  void _onSplashComplete() {
+    _splashDone = true;
+    _tryNavigate();
+  }
 
-    if (user != null) {
+  void _tryNavigate() {
+    if (_authCheckDone && _splashDone && !_navigating) {
+      _navigating = true;
       Navigator.pushReplacement(
         context,
         PageRouteBuilder(
-          pageBuilder: (_, a, __) => const HomeScreen(),
-          transitionsBuilder: (_, a, __, child) =>
-              FadeTransition(opacity: a, child: child),
-          transitionDuration: const Duration(milliseconds: 500),
-        ),
-      );
-    } else {
-      Navigator.pushReplacement(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (_, a, __) => const AuthScreen(),
-          transitionsBuilder: (_, a, __, child) =>
-              FadeTransition(opacity: a, child: child),
+          pageBuilder: (_, animation, __) => _destination!,
+          transitionsBuilder: (_, animation, __, child) {
+            return FadeTransition(
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOut,
+              ),
+              child: child,
+            );
+          },
           transitionDuration: const Duration(milliseconds: 500),
         ),
       );
@@ -76,5 +93,7 @@ class _AuthGateState extends State<_AuthGate> {
   }
 
   @override
-  Widget build(BuildContext context) => const SplashScreen();
+  Widget build(BuildContext context) {
+    return SplashScreen(onComplete: _onSplashComplete);
+  }
 }
