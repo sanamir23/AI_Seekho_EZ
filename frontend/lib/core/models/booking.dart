@@ -92,3 +92,58 @@ class BookingOut {
     }
   }
 }
+
+class BookingDetailOut extends BookingOut {
+  final String? reasoning;
+  final List<Map<String, dynamic>>? traceSteps;
+  final List<Map<String, dynamic>>? notifications;
+  final Map<String, dynamic>? scoreBreakdown;
+  final Map<String, dynamic>? priceRange;
+  final List<Map<String, dynamic>>? candidateProviders;
+
+  const BookingDetailOut({
+    required super.id,
+    required super.status,
+    required super.serviceType,
+    required super.locationText,
+    required super.scheduledAt,
+    required super.createdAt,
+    super.agentTraceId,
+    required super.provider,
+    this.reasoning,
+    this.traceSteps,
+    this.notifications,
+    this.scoreBreakdown,
+    this.priceRange,
+    this.candidateProviders,
+  });
+
+  factory BookingDetailOut.fromJson(Map<String, dynamic> j) {
+    return BookingDetailOut(
+      id: j['id'],
+      status: j['status'],
+      serviceType: j['service_type'],
+      locationText: j['location_text'],
+      scheduledAt: j['scheduled_at'],
+      createdAt: j['created_at'],
+      agentTraceId: j['agent_trace_id'],
+      provider: ProviderOut.fromJson(j['provider']),
+      reasoning: j['reasoning'],
+      traceSteps: j['trace_steps'] != null
+          ? List<Map<String, dynamic>>.from(j['trace_steps'])
+          : null,
+      notifications: j['notifications'] != null
+          ? List<Map<String, dynamic>>.from(j['notifications'])
+          : null,
+      scoreBreakdown: j['score_breakdown'] != null
+          ? Map<String, dynamic>.from(j['score_breakdown'])
+          : null,
+      priceRange: j['price_range'] != null
+          ? Map<String, dynamic>.from(j['price_range'])
+          : null,
+      candidateProviders: j['candidate_providers'] != null
+          ? List<Map<String, dynamic>>.from(j['candidate_providers'])
+          : null,
+    );
+  }
+}

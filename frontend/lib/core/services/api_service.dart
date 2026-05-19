@@ -10,7 +10,7 @@ import '../models/booking.dart';
 
 /// Base URL of the FastAPI backend.
 String get _kBaseUrl {
-  return 'http://192.168.100.158:8000';
+  return 'http://192.168.18.130:8000';
 }
 
 const _kTokenKey = 'ez_access_token';
@@ -84,6 +84,9 @@ class ApiService {
   }
 
   void _checkStatus(http.Response res) {
+    if (res.statusCode == 401) {
+      clearSession(); // Auto-clear invalid/expired token from local storage
+    }
     if (res.statusCode >= 400) {
       String msg;
       try {
@@ -130,11 +133,13 @@ class ApiService {
     required String email,
     required String password,
   }) async {
-    final res = await http.post(
-      Uri.parse('$_kBaseUrl/api/auth/login'),
-      headers: const {'Content-Type': 'application/json'},
-      body: json.encode({'email': email, 'password': password}),
-    ).timeout(const Duration(seconds: 10));
+    final res = await http
+        .post(
+          Uri.parse('$_kBaseUrl/api/auth/login'),
+          headers: const {'Content-Type': 'application/json'},
+          body: json.encode({'email': email, 'password': password}),
+        )
+        .timeout(const Duration(seconds: 10));
     _checkStatus(res);
     final body = json.decode(res.body) as Map<String, dynamic>;
     await _saveSession(
@@ -150,10 +155,12 @@ class ApiService {
     final token = await getToken();
     if (token == null) return null;
     try {
-      final res = await http.get(
-        Uri.parse('$_kBaseUrl/api/auth/me'),
-        headers: await _authHeaders(),
-      ).timeout(const Duration(seconds: 5));
+      final res = await http
+          .get(
+            Uri.parse('$_kBaseUrl/api/auth/me'),
+            headers: await _authHeaders(),
+          )
+          .timeout(const Duration(seconds: 5));
       if (res.statusCode == 401) {
         await clearSession();
         return null;
@@ -185,16 +192,17 @@ class ApiService {
     final payload = {
       'text': text,
       if (conversationId != null) 'conversation_id': conversationId,
-      if (demoOffsetSeconds != null)
-        'demo_offset_seconds': demoOffsetSeconds,
+      if (demoOffsetSeconds != null) 'demo_offset_seconds': demoOffsetSeconds,
     };
     debugPrint('[EZ] sendServiceRequest payload: $payload');
 
-    final res = await http.post(
-      Uri.parse('$_kBaseUrl/api/service-requests'),
-      headers: await _authHeaders(),
-      body: json.encode(payload),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .post(
+          Uri.parse('$_kBaseUrl/api/service-requests'),
+          headers: await _authHeaders(),
+          body: json.encode(payload),
+        )
+        .timeout(const Duration(seconds: 30));
 
     debugPrint('[EZ] sendServiceRequest status=${res.statusCode}');
     _checkStatus(res);
@@ -205,7 +213,9 @@ class ApiService {
       return AgentRunOut.fromJson(body);
     } catch (e, stack) {
       debugPrint('[EZ] JSON parse error in sendServiceRequest: $e');
-      debugPrint('[EZ] Raw body: ${res.body.substring(0, (res.body.length > 500 ? 500 : res.body.length))}');
+      debugPrint(
+        '[EZ] Raw body: ${res.body.substring(0, (res.body.length > 500 ? 500 : res.body.length))}',
+      );
       debugPrint('[EZ] Stack: $stack');
       rethrow;
     }
@@ -218,11 +228,13 @@ class ApiService {
       final token = await getToken();
       final req = http.MultipartRequest('POST', uri);
       if (token != null) req.headers['Authorization'] = 'Bearer $token';
-      req.files.add(await http.MultipartFile.fromPath(
-        'file',
-        audioFile.path,
-        contentType: MediaType('audio', 'mp4'),
-      ));
+      req.files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          audioFile.path,
+          contentType: MediaType('audio', 'mp4'),
+        ),
+      );
       final streamed = await req.send().timeout(const Duration(seconds: 30));
       final res = await http.Response.fromStream(streamed);
       debugPrint('[EZ] transcribeAudio status=${res.statusCode}');
@@ -230,14 +242,20 @@ class ApiService {
       final body = json.decode(res.body) as Map<String, dynamic>;
       final text = body['text']?.toString() ?? '';
       if (text.isEmpty) {
-        throw ApiException(200, 'Transcription returned empty text. Please try again.');
+        throw ApiException(
+          200,
+          'Transcription returned empty text. Please try again.',
+        );
       }
       return text;
     } on ApiException {
       rethrow;
     } catch (e) {
       debugPrint('[EZ] transcribeAudio error: $e');
-      throw ApiException(0, 'Voice transcription failed: ${e.toString().length > 100 ? e.toString().substring(0, 100) : e}');
+      throw ApiException(
+        0,
+        'Voice transcription failed: ${e.toString().length > 100 ? e.toString().substring(0, 100) : e}',
+      );
     }
   }
 
@@ -257,14 +275,13 @@ class ApiService {
   }
 
   /// GET /api/bookings/{id}
-  Future<BookingOut> getBooking(String bookingId) async {
+  Future<BookingDetailOut> getBooking(String bookingId) async {
     final res = await http.get(
       Uri.parse('$_kBaseUrl/api/bookings/$bookingId'),
       headers: await _authHeaders(),
     );
     _checkStatus(res);
-    return BookingOut.fromJson(
-        json.decode(res.body) as Map<String, dynamic>);
+    return BookingDetailOut.fromJson(json.decode(res.body) as Map<String, dynamic>);
   }
 
   /// POST /api/bookings/{id}/cancel
@@ -274,7 +291,6 @@ class ApiService {
       headers: await _authHeaders(),
     );
     _checkStatus(res);
-    return BookingOut.fromJson(
-        json.decode(res.body) as Map<String, dynamic>);
+    return BookingOut.fromJson(json.decode(res.body) as Map<String, dynamic>);
   }
 }
