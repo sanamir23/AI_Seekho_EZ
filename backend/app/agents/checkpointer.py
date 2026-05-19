@@ -14,6 +14,8 @@ def get_checkpointer() -> PostgresSaver:
         max_size=10,
         kwargs={"autocommit": True, "prepare_threshold": 0},
         open=True,
+        check=ConnectionPool.check_connection,
+        max_idle=30,
     )
     saver = PostgresSaver(pool)
     saver.setup()  # creates langgraph schema/tables on first run; idempotent

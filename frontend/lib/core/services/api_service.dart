@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/agent_response.dart';
@@ -181,33 +182,63 @@ class ApiService {
     String? conversationId,
     int? demoOffsetSeconds,
   }) async {
+    final payload = {
+      'text': text,
+      if (conversationId != null) 'conversation_id': conversationId,
+      if (demoOffsetSeconds != null)
+        'demo_offset_seconds': demoOffsetSeconds,
+    };
+    debugPrint('[EZ] sendServiceRequest payload: $payload');
+
     final res = await http.post(
       Uri.parse('$_kBaseUrl/api/service-requests'),
       headers: await _authHeaders(),
-      body: json.encode({
-        'text': text,
-        if (conversationId != null) 'conversation_id': conversationId,
-        if (demoOffsetSeconds != null)
-          'demo_offset_seconds': demoOffsetSeconds,
-      }),
-    );
+      body: json.encode(payload),
+    ).timeout(const Duration(seconds: 30));
+
+    debugPrint('[EZ] sendServiceRequest status=${res.statusCode}');
     _checkStatus(res);
-    return AgentRunOut.fromJson(
-        json.decode(res.body) as Map<String, dynamic>);
+
+    try {
+      final body = json.decode(res.body) as Map<String, dynamic>;
+      debugPrint('[EZ] sendServiceRequest response status=${body['status']}');
+      return AgentRunOut.fromJson(body);
+    } catch (e, stack) {
+      debugPrint('[EZ] JSON parse error in sendServiceRequest: $e');
+      debugPrint('[EZ] Raw body: ${res.body.substring(0, (res.body.length > 500 ? 500 : res.body.length))}');
+      debugPrint('[EZ] Stack: $stack');
+      rethrow;
+    }
   }
 
   /// POST /api/service-requests/transcribe  →  {text: "..."}
   Future<String> transcribeAudio(File audioFile) async {
-    final uri = Uri.parse('$_kBaseUrl/api/service-requests/transcribe');
-    final token = await getToken();
-    final req = http.MultipartRequest('POST', uri);
-    if (token != null) req.headers['Authorization'] = 'Bearer $token';
-    req.files.add(await http.MultipartFile.fromPath('file', audioFile.path));
-    final streamed = await req.send();
-    final res = await http.Response.fromStream(streamed);
-    _checkStatus(res);
-    final body = json.decode(res.body) as Map<String, dynamic>;
-    return body['text']?.toString() ?? '';
+    try {
+      final uri = Uri.parse('$_kBaseUrl/api/service-requests/transcribe');
+      final token = await getToken();
+      final req = http.MultipartRequest('POST', uri);
+      if (token != null) req.headers['Authorization'] = 'Bearer $token';
+      req.files.add(await http.MultipartFile.fromPath(
+        'file',
+        audioFile.path,
+        contentType: MediaType('audio', 'mp4'),
+      ));
+      final streamed = await req.send().timeout(const Duration(seconds: 30));
+      final res = await http.Response.fromStream(streamed);
+      debugPrint('[EZ] transcribeAudio status=${res.statusCode}');
+      _checkStatus(res);
+      final body = json.decode(res.body) as Map<String, dynamic>;
+      final text = body['text']?.toString() ?? '';
+      if (text.isEmpty) {
+        throw ApiException(200, 'Transcription returned empty text. Please try again.');
+      }
+      return text;
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      debugPrint('[EZ] transcribeAudio error: $e');
+      throw ApiException(0, 'Voice transcription failed: ${e.toString().length > 100 ? e.toString().substring(0, 100) : e}');
+    }
   }
 
   // ── Bookings endpoint ───────────────────────────────────────────

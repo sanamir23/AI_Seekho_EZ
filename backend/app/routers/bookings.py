@@ -72,17 +72,28 @@ def get_booking(
 
     reasoning = None
     trace_steps = None
+    candidate_providers = None
+    score_breakdown = None
     if row.get("agent_trace_id"):
         tr = (
             svc.table("agent_traces")
-            .select("reasoning, steps")
+            .select("reasoning, steps, candidate_providers, selected_provider_id")
             .eq("id", row["agent_trace_id"])
             .limit(1)
             .execute()
         )
         if tr.data:
-            reasoning = tr.data[0].get("reasoning")
-            trace_steps = tr.data[0].get("steps")
+            t = tr.data[0]
+            reasoning = t.get("reasoning")
+            trace_steps = t.get("steps")
+            candidate_providers = t.get("candidate_providers")
+            # Pull the chosen provider's score breakdown out of the snapshot.
+            if candidate_providers:
+                sel_id = t.get("selected_provider_id") or row["provider_id"]
+                for c in candidate_providers:
+                    if c.get("id") == sel_id:
+                        score_breakdown = c.get("score_breakdown")
+                        break
 
     notif = (
         svc.table("notifications")
@@ -92,8 +103,26 @@ def get_booking(
         .execute()
     )
 
+    # Price range lookup (cheap, single row).
+    price_range = None
+    pr = (
+        svc.table("price_ranges")
+        .select("min_pkr, max_pkr")
+        .eq("category", row["service_type"])
+        .limit(1)
+        .execute()
+    )
+    if pr.data:
+        price_range = {"min_pkr": pr.data[0]["min_pkr"], "max_pkr": pr.data[0]["max_pkr"]}
+
     return BookingDetailOut(
-        **base, reasoning=reasoning, trace_steps=trace_steps, notifications=notif.data or []
+        **base,
+        reasoning=reasoning,
+        trace_steps=trace_steps,
+        notifications=notif.data or [],
+        score_breakdown=score_breakdown,
+        price_range=price_range,
+        candidate_providers=candidate_providers,
     )
 
 

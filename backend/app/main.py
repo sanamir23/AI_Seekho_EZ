@@ -61,14 +61,16 @@ def create_app() -> FastAPI:
     def health():
         return {"ok": True}
 
-    # ── Static assets & Frontend routes (only if frontend/ dir exists) ─────────
-    if (FRONTEND_DIR / "static").exists():
-        app.mount("/static", StaticFiles(directory=FRONTEND_DIR / "static"), name="static")
+    # ── Static assets (CSS / JS / images) ───────────────────────────────────
+    static_dir = FRONTEND_DIR / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-        # ── Frontend HTML routes (served last so API routes always win) ──────────
-        def _page(name: str) -> FileResponse:
-            return FileResponse(FRONTEND_DIR / name)
+    # ── Frontend HTML routes (served last so API routes always win) ──────────
+    def _page(name: str) -> FileResponse:
+        return FileResponse(FRONTEND_DIR / name)
 
+    if FRONTEND_DIR.exists():
         @app.get("/")
         def page_home():           return _page("index.html")
 
@@ -83,11 +85,6 @@ def create_app() -> FastAPI:
 
         @app.get("/bookings/{bid}")
         def page_booking(bid: str): return _page("booking.html")
-    else:
-        logging.getLogger("main").warning(
-            "Frontend directory not found at %s — static file serving disabled.",
-            FRONTEND_DIR,
-        )
 
     return app
 

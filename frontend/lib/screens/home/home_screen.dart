@@ -7,7 +7,7 @@ import '../../core/widgets/ez_chip.dart';
 import '../../core/widgets/bottom_nav_bar.dart';
 import '../../core/services/api_service.dart';
 import '../../core/models/booking.dart';
-import '../composer/composer_screen.dart';
+import '../composer/chat_screen.dart';
 import '../auth/auth_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -284,7 +284,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: GestureDetector(
                       onTap: () => Navigator.push(context,
                           MaterialPageRoute(
-                              builder: (_) => const ComposerScreen())),
+                              builder: (_) => const ChatScreen())),
                       child: Container(
                         padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
                         decoration: BoxDecoration(

@@ -28,3 +28,7 @@ class BookingDetailOut(BookingOut):
     reasoning: str | None = None
     trace_steps: list[dict[str, Any]] | None = None
     notifications: list[dict[str, Any]] | None = None
+    # New: score breakdown for the chosen provider + price range.
+    score_breakdown: dict[str, float] | None = None
+    price_range: dict[str, int] | None = None
+    candidate_providers: list[dict[str, Any]] | None = None

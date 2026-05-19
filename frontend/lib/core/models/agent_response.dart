@@ -18,12 +18,12 @@ class IntentParsed {
   });
 
   factory IntentParsed.fromJson(Map<String, dynamic> j) => IntentParsed(
-        intentType: j['intent_type'] ?? 'book',
-        serviceType: j['service_type'],
-        area: j['area'],
-        scheduledAt: j['scheduled_at'],
+        intentType: j['intent_type']?.toString() ?? 'book',
+        serviceType: j['service_type']?.toString(),
+        area: j['area']?.toString(),
+        scheduledAt: j['scheduled_at']?.toString(),
         confidence: (j['confidence'] ?? 0.0).toDouble(),
-        language: j['language'],
+        language: j['language']?.toString(),
       );
 }
 
@@ -34,6 +34,8 @@ class ProviderBrief {
   final String? area;
   final double? rating;
   final double? distanceKm;
+  final double? score;
+  final Map<String, dynamic>? scoreBreakdown;
 
   const ProviderBrief({
     required this.id,
@@ -42,16 +44,22 @@ class ProviderBrief {
     this.area,
     this.rating,
     this.distanceKm,
+    this.score,
+    this.scoreBreakdown,
   });
 
   factory ProviderBrief.fromJson(Map<String, dynamic> j) => ProviderBrief(
-        id: j['id'],
-        name: j['name'],
-        category: j['category'],
-        area: j['area'],
+        id: j['id']?.toString() ?? '',
+        name: j['name']?.toString() ?? 'Unknown',
+        category: j['category']?.toString() ?? '',
+        area: j['area']?.toString(),
         rating: j['rating'] != null ? (j['rating']).toDouble() : null,
         distanceKm:
             j['distance_km'] != null ? (j['distance_km']).toDouble() : null,
+        score: j['score'] != null ? (j['score']).toDouble() : null,
+        scoreBreakdown: j['score_breakdown'] != null
+            ? Map<String, dynamic>.from(j['score_breakdown'])
+            : null,
       );
 }
 
@@ -69,10 +77,10 @@ class BookingBrief {
   });
 
   factory BookingBrief.fromJson(Map<String, dynamic> j) => BookingBrief(
-        id: j['id'],
-        status: j['status'],
-        scheduledAt: j['scheduled_at'],
-        providerId: j['provider_id'],
+        id: j['id']?.toString() ?? '',
+        status: j['status']?.toString() ?? '',
+        scheduledAt: j['scheduled_at']?.toString() ?? '',
+        providerId: j['provider_id']?.toString() ?? '',
       );
 }
 
@@ -84,8 +92,38 @@ class FollowupBrief {
       {required this.notificationId, required this.reminderAt});
 
   factory FollowupBrief.fromJson(Map<String, dynamic> j) => FollowupBrief(
-        notificationId: j['notification_id'],
-        reminderAt: j['reminder_at'],
+        notificationId: j['notification_id']?.toString() ?? '',
+        reminderAt: j['reminder_at']?.toString() ?? '',
+      );
+}
+
+/// Matches backend: SlotOption(label, iso)
+class SlotOption {
+  final String label;
+  final String iso;
+
+  const SlotOption({required this.label, required this.iso});
+
+  factory SlotOption.fromJson(Map<String, dynamic> j) => SlotOption(
+        label: j['label']?.toString() ?? '',
+        iso: j['iso']?.toString() ?? '',
+      );
+}
+
+/// Matches backend: PriceRange(min_pkr, max_pkr)
+class PriceRange {
+  final int minPkr;
+  final int maxPkr;
+
+  const PriceRange({required this.minPkr, required this.maxPkr});
+
+  factory PriceRange.fromJson(Map<String, dynamic> j) => PriceRange(
+        minPkr: (j['min_pkr'] ?? 0) is int
+            ? j['min_pkr']
+            : (j['min_pkr'] ?? 0).toInt(),
+        maxPkr: (j['max_pkr'] ?? 0) is int
+            ? j['max_pkr']
+            : (j['max_pkr'] ?? 0).toInt(),
       );
 }
 
@@ -104,10 +142,13 @@ class AgentRunOut {
   final FollowupBrief? followup;
   final String? traceId;
   final List<Map<String, dynamic>>? traceSteps;
+  final PriceRange? priceRange;
 
   // needs_clarification
   final String? question;
   final IntentParsed? partialIntent;
+  final List<SlotOption>? freeSlots;
+  final List<ProviderBrief>? alternatives;
 
   // abandoned
   final String? reason;
@@ -124,37 +165,78 @@ class AgentRunOut {
     this.followup,
     this.traceId,
     this.traceSteps,
+    this.priceRange,
     this.question,
     this.partialIntent,
+    this.freeSlots,
+    this.alternatives,
     this.reason,
   });
 
-  factory AgentRunOut.fromJson(Map<String, dynamic> j) => AgentRunOut(
-        status: j['status'],
-        conversationId: j['conversation_id'],
-        intent: j['intent'] != null ? IntentParsed.fromJson(j['intent']) : null,
-        selectedProvider: j['selected_provider'] != null
-            ? ProviderBrief.fromJson(j['selected_provider'])
-            : null,
-        reasoning: j['reasoning'],
-        formattedMessage: j['formatted_message'],
-        suggestions: j['suggestions'] != null
-            ? List<String>.from(j['suggestions'])
-            : null,
-        booking: j['booking'] != null
-            ? BookingBrief.fromJson(j['booking'])
-            : null,
-        followup: j['followup'] != null
-            ? FollowupBrief.fromJson(j['followup'])
-            : null,
-        traceId: j['trace_id'],
-        traceSteps: j['trace_steps'] != null
-            ? List<Map<String, dynamic>>.from(j['trace_steps'])
-            : null,
-        question: j['question'],
-        partialIntent: j['partial_intent'] != null
-            ? IntentParsed.fromJson(j['partial_intent'])
-            : null,
-        reason: j['reason'],
-      );
+  factory AgentRunOut.fromJson(Map<String, dynamic> j) {
+    List<SlotOption>? slots;
+    try {
+      slots = j['free_slots'] != null
+          ? (j['free_slots'] as List)
+              .map((s) => SlotOption.fromJson(s as Map<String, dynamic>))
+              .toList()
+          : null;
+    } catch (_) {
+      slots = null;
+    }
+
+    List<ProviderBrief>? alts;
+    try {
+      alts = j['alternatives'] != null
+          ? (j['alternatives'] as List)
+              .map((p) => ProviderBrief.fromJson(p as Map<String, dynamic>))
+              .toList()
+          : null;
+    } catch (_) {
+      alts = null;
+    }
+
+    PriceRange? priceRange;
+    try {
+      priceRange = j['price_range'] != null
+          ? PriceRange.fromJson(j['price_range'] as Map<String, dynamic>)
+          : null;
+    } catch (_) {
+      priceRange = null;
+    }
+
+    return AgentRunOut(
+      status: j['status']?.toString() ?? 'abandoned',
+      conversationId: j['conversation_id']?.toString() ?? '',
+      intent:
+          j['intent'] != null ? IntentParsed.fromJson(j['intent']) : null,
+      selectedProvider: j['selected_provider'] != null
+          ? ProviderBrief.fromJson(j['selected_provider'])
+          : null,
+      reasoning: j['reasoning']?.toString(),
+      formattedMessage: j['formatted_message']?.toString(),
+      suggestions: j['suggestions'] != null
+          ? List<String>.from(
+              (j['suggestions'] as List).map((e) => e.toString()))
+          : null,
+      booking: j['booking'] != null
+          ? BookingBrief.fromJson(j['booking'])
+          : null,
+      followup: j['followup'] != null
+          ? FollowupBrief.fromJson(j['followup'])
+          : null,
+      traceId: j['trace_id']?.toString(),
+      traceSteps: j['trace_steps'] != null
+          ? List<Map<String, dynamic>>.from(j['trace_steps'])
+          : null,
+      priceRange: priceRange,
+      question: j['question']?.toString(),
+      partialIntent: j['partial_intent'] != null
+          ? IntentParsed.fromJson(j['partial_intent'])
+          : null,
+      freeSlots: slots,
+      alternatives: alts,
+      reason: j['reason']?.toString(),
+    );
+  }
 }

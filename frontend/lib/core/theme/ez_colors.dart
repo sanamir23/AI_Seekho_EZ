@@ -28,6 +28,12 @@ class EzColors {
   static const Color successSoft = Color(0xFFDCFCE7);
   static const Color info = Color(0xFF2563EB);
 
+  // Chat UI specifics
+  static const Color creamBg = Color(0xFFF5F0E8);
+  static const Color brandYellow = Color(0xFFF5C000);
+  static const Color darkText = Color(0xFF1A1A1A);
+  static const Color availability = Color(0xFF4CAF50);
+
   // Shadows as raw ARGB
   static const Color shadowColor = Color(0xFF141414);
 }

@@ -48,7 +48,8 @@ class SplashScreen extends StatelessWidget {
                   ],
                 ),
               ),
-            ),
+            ).animate(onPlay: (controller) => controller.repeat(reverse: true))
+             .shimmer(duration: 3000.ms, color: Colors.white.withOpacity(0.2)),
           ),
 
           // ── Center content ────────────────────────────────────────────────

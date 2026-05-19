@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     gemini_api_key: str
     gemini_model: str = "gemini-2.0-flash"
+    gemini_fast_model: str | None = None
 
     google_places_api_key: str
     seed_city: str = "Islamabad"

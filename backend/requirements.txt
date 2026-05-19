@@ -8,12 +8,10 @@ supabase==2.9.1
 gotrue==2.9.3
 postgrest==0.17.2
 apscheduler==3.10.4
-langchain==0.3.25
-langchain-core==0.3.58
-langchain-google-genai==2.1.4
-google-generativeai>=0.8.0
-langgraph==0.4.7
+langchain==0.3.7
+langchain-core==0.3.21
+langchain-google-genai==2.0.6
+langgraph==0.2.50
 langgraph-checkpoint-postgres==2.0.2
 psycopg[binary,pool]==3.2.3
 python-jose[cryptography]==3.3.0
-python-multipart>=0.0.9

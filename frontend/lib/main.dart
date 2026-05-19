@@ -46,7 +46,7 @@ class _AuthGateState extends State<_AuthGate> {
 
   Future<void> _check() async {
     // Brief splash delay so the splash screen is visible
-    await Future.delayed(const Duration(milliseconds: 3500));
+    await Future.delayed(const Duration(milliseconds: 2500));
     if (!mounted) return;
 
     final user = await ApiService.instance.me();

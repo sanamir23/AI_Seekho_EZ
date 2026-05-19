@@ -24,3 +24,13 @@ def requeue_due_notifications() -> None:
             schedule_reminder(notification_id=n["id"], run_at=run_at)
         except Exception as e:  # don't crash boot on a malformed row
             log.warning("Failed to requeue notification %s: %s", n.get("id"), e)
+
+
+def expire_holds_job() -> None:
+    """Sweep expired 'held' bookings so their slots become free again."""
+    try:
+        n = T.expire_old_holds()
+        if n:
+            log.info("Expired %d stale slot hold(s).", n)
+    except Exception as e:
+        log.warning("expire_holds_job failed: %s", e)

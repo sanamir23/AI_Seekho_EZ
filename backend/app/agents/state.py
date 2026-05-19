@@ -5,9 +5,6 @@ from langgraph.graph.message import add_messages
 
 class AgentState(TypedDict, total=False):
     # LangChain message thread — required by ToolNode.
-    # `add_messages` is a LangGraph reducer that appends new messages rather
-    # than overwriting the list, so both the AIMessage (tool calls) and the
-    # ToolMessage (results) accumulate correctly across nodes.
     messages: Annotated[list, add_messages]
 
     # Inputs
@@ -15,22 +12,32 @@ class AgentState(TypedDict, total=False):
     conversation_id: str
     input_text: str
     demo_offset_seconds: int | None
+    idempotency_key: str | None
 
     # Intent slot-filling
     intent: dict[str, Any] | None
-    clarification_context: list[str]  # accumulated user replies
+    clarification_context: list[str]
     clarify_rounds: int
 
     # Provider pipeline
-    # Note: raw candidates are not stored here — they live in state.messages as
-    # a ToolMessage written by ToolNode after find_providers executes.
     ranked: list[dict]
     selected: dict | None
     reasoning: str | None
 
-    # Response formatting (NEW)
-    formatted_response: str | None       # concise user-facing message
-    suggestions: list[str] | None        # follow-up action chips
+    # Slot picker
+    free_slots: list[dict] | None      # [{"label": "Tomorrow 09:00", "iso": "..."}]
+    held_booking: dict | None          # row from hold_slot
+    alternatives: list[dict] | None    # alt providers when slot is taken
+
+    # Pricing
+    price_range: dict | None           # {"min_pkr": int, "max_pkr": int}
+
+    # User profile
+    user_profile: dict | None
+
+    # Response formatting
+    formatted_response: str | None
+    suggestions: list[str] | None
 
     # Outputs
     booking: dict | None

@@ -4,23 +4,33 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 
 log = logging.getLogger("scheduler")
 
-_scheduler: Optional[AsyncIOScheduler] = None
+_scheduler: Optional[BackgroundScheduler] = None
 
 
-def start_scheduler() -> AsyncIOScheduler:
+def start_scheduler() -> BackgroundScheduler:
     global _scheduler
     if _scheduler and _scheduler.running:
         return _scheduler
-    _scheduler = AsyncIOScheduler(timezone="UTC")
+    # BackgroundScheduler runs in its own thread — never blocks the event loop.
+    # Crash durability is handled by requeue_due_notifications() below, which
+    # re-adds jobs for any unsent notifications already committed to the DB.
+    _scheduler = BackgroundScheduler(timezone="UTC")
     _scheduler.start()
     log.info("APScheduler started.")
-    # Re-register jobs that survived a restart.
-    from app.scheduler.jobs import requeue_due_notifications
+    from app.scheduler.jobs import requeue_due_notifications, expire_holds_job
     requeue_due_notifications()
+    # Cleanup expired slot holds every 30 seconds.
+    _scheduler.add_job(
+        expire_holds_job,
+        trigger="interval",
+        seconds=30,
+        id="expire_holds",
+        replace_existing=True,
+    )
     return _scheduler
 
 
@@ -31,7 +41,7 @@ def stop_scheduler() -> None:
         log.info("APScheduler stopped.")
 
 
-def get_scheduler() -> AsyncIOScheduler:
+def get_scheduler() -> BackgroundScheduler:
     if _scheduler is None:
         raise RuntimeError("Scheduler not started. Call start_scheduler() first.")
     return _scheduler
