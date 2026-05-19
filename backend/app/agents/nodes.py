@@ -49,7 +49,7 @@ _ROBOTIC_PATTERNS = [
     re.compile(r"^[\"']|[\"']$"),
 ]
 
-MAX_CLARIFY_ROUNDS = 3
+MAX_CLARIFY_ROUNDS = 6
 INTENT_CACHE_SIZE = 256
 
 
@@ -61,9 +61,11 @@ def _sanitize_llm_text(text: str) -> str:
 
 
 def _extract_area(text: str) -> str | None:
-    m = re.search(r"\b([A-I])\s*[- ]?\s*(\d{1,2})\b", text, re.I)
-    if not m:
+    # Return the LAST match so the most-recent user reply wins over earlier context
+    matches = list(re.finditer(r"\b([A-I])\s*[- ]?\s*(\d{1,2})\b", text, re.I))
+    if not matches:
         return None
+    m = matches[-1]
     return f"{m.group(1).upper()}-{m.group(2)}"
 
 
@@ -77,7 +79,9 @@ def _parse_common_time(text: str) -> str | None:
     if re.search(r"\b(abhi|now|asap|urgent|jaldi)\b", lower) and not (has_short_time or has_day_time):
         return None
     if not (has_short_time or has_period):
-        return None
+        if not has_day_time:
+            return None
+        # "tomorrow"/"kal"/"today"/"aaj" alone → fall through, defaults to 9am below
 
     day = None
     if re.search(r"\b(tomorrow|kal)\b", lower):
@@ -290,11 +294,14 @@ def intent_parser(state: AgentState) -> dict:
             break
 
     if replies or last_agent_msg:
-        user_text = f"Original request: {user_text}\n"
+        parts = [f"Original request: {user_text}"]
         if last_agent_msg:
-            user_text += f"Agent's last question: {last_agent_msg}\n"
+            parts.append(f"Agent asked: {last_agent_msg}")
+        if len(replies) > 1:
+            parts.append(f"Earlier user answers (context only): {' | '.join(replies[:-1])}")
         if replies:
-            user_text += "Follow-up replies from user: " + " | ".join(replies)
+            parts.append(f"CURRENT user answer (act on this): {replies[-1]}")
+        user_text = "\n".join(parts)
 
     # Cache by user_text + a 1-minute bucket so relative dates still resolve sanely.
     now = datetime.now(timezone.utc)
@@ -317,13 +324,30 @@ def intent_parser(state: AgentState) -> dict:
         }
         used_fallback = True
 
+    # Validate LLM scheduled_at is ISO; if not, fall back to regex on the latest reply.
+    raw_sched = parsed.get("scheduled_at")
+    valid_sched: str | None = None
+    if raw_sched:
+        try:
+            datetime.fromisoformat(str(raw_sched).replace("Z", "+00:00"))
+            valid_sched = raw_sched
+        except (ValueError, AttributeError):
+            current_reply = (state.get("clarification_context") or [state["input_text"]])[-1]
+            valid_sched = _parse_common_time(current_reply)
+            if not valid_sched:
+                valid_sched = _parse_common_time(state["input_text"])
+    else:
+        current_reply = (state.get("clarification_context") or [])[-1] if state.get("clarification_context") else None
+        if current_reply:
+            valid_sched = _parse_common_time(current_reply)
+
     new = {
         "intent_type": parsed.get("intent_type", "book"),
         "service_type": (
             parsed["service_type"] if parsed.get("service_type") in ALLOWED_CATEGORIES else None
         ),
         "area": parsed.get("area"),
-        "scheduled_at": parsed.get("scheduled_at"),
+        "scheduled_at": valid_sched,
         "selected_provider": parsed.get("selected_provider"),
         "confidence": parsed.get("confidence", 0.0),
         "language": parsed.get("language") or "en",
@@ -371,13 +395,12 @@ def route_after_intent(state: AgentState) -> str:
         return "give_up"
 
     missing_for_search = [f for f in ("service_type", "area") if not intent.get(f)]
-    needs_clarify = (
+    needs_clarify = bool(
         missing_for_search
-        or (intent.get("confidence") or 0.0) < 0.6
         or intent.get("service_type") not in ALLOWED_CATEGORIES
     )
     route = "clarifier" if needs_clarify else "provider_caller"
-    log.info("  route_after_intent → %s", route)
+    log.info("  route_after_intent → %s (missing=%s)", route, missing_for_search)
     return route
 
 
@@ -460,7 +483,7 @@ def route_after_ranking(state: AgentState) -> str:
 
 
 # ===========================================================================
-# 4. slot_picker — interrupts with a list of clickable time chips
+# 4. slot_picker — auto-picks the soonest free slot (no user interrupt)
 # ===========================================================================
 @traced("slot_picker")
 def slot_picker(state: AgentState) -> dict:
@@ -474,54 +497,20 @@ def slot_picker(state: AgentState) -> dict:
 
     slots = T.get_provider_free_slots.invoke({"provider_id": selected["id"]})
     if not slots:
-        # Fall back to a generic time prompt via the clarifier.
         return {"free_slots": []}
 
-    language = intent.get("language") or "en"
-    if language == "roman_ur":
-        question = f"{selected['name']} kab chahiye? Yeh available slots hain:"
-    elif language == "ur":
-        question = f"{selected['name']} کب چاہیے؟ یہ دستیاب اوقات ہیں:"
-    else:
-        question = f"When do you want {selected['name']}? Pick a free slot:"
+    # Autonomously pick the earliest available slot — no interrupt needed.
+    picked_slot = slots[0]
+    picked_iso = picked_slot["iso"]
+    log.info("  auto-picked slot %s for %s", picked_iso, selected.get("name"))
 
-    T.upsert_conversation.invoke(
-        {
-            "conversation_id": state["conversation_id"],
-            "user_id": state["user_id"],
-            "status": "awaiting_user",
-            "last_question": question,
-        }
-    )
-
-    reply = interrupt({"question": question, "slots": slots})
-
-    # User clicked a chip (or typed). Accept ISO directly or look up by label.
-    picked_iso: str | None = None
-    if isinstance(reply, dict):
-        picked = str(reply.get("user_reply") or reply.get("text") or "").strip()
-    else:
-        picked = str(reply).strip() if reply else ""
-
-    for s in slots:
-        if picked == s["iso"] or picked.lower() == s["label"].lower():
-            picked_iso = s["iso"]
-            break
-    if not picked_iso and picked.startswith(("20", "21")):  # crude ISO check
-        picked_iso = picked
-
-    new_intent = {**intent}
-    if picked_iso:
-        new_intent["scheduled_at"] = picked_iso
-        extra = list(state.get("clarification_context") or []) + [picked_iso]
-    else:
-        extra = list(state.get("clarification_context") or []) + [picked]
+    new_intent = {**intent, "scheduled_at": picked_iso}
+    extra = list(state.get("clarification_context") or []) + [picked_iso]
 
     return {
         "intent": new_intent,
         "clarification_context": extra,
         "free_slots": slots,
-        "question": question,
     }
 
 
@@ -666,7 +655,6 @@ def no_results_handler(state: AgentState) -> dict:
         area and any(str(a).lower() == str(area).lower() for a in available)
     )
 
-    # Add to waitlist only when no providers serve that area at all.
     if category and area and not area_has_providers:
         try:
             T.add_to_waitlist.invoke(
@@ -675,7 +663,14 @@ def no_results_handler(state: AgentState) -> dict:
         except Exception as e:
             log.warning("  waitlist insert failed: %s", e)
 
-    # Now route to clarifier so it can suggest the available areas.
+    # Autonomous: if there are nearby areas with providers, auto-expand instead of asking.
+    nearby = [a for a in available if str(a).lower() != str(area or "").lower()]
+    if nearby:
+        auto_area = nearby[0]
+        log.info("  auto-expanding search from %s to %s", area, auto_area)
+        new_intent = {**intent, "area": auto_area, "selected_provider": None}
+        return {"intent": new_intent, "auto_search_area": auto_area}
+
     return {}
 
 
@@ -866,24 +861,33 @@ def _fallback_clarifier_question(
 
     if ranked and "selected_provider" in missing:
         names = ", ".join(
-            f"{i}. {p.get('name')} ({p.get('rating', '?')}*)"
+            f"{i}. {p.get('name')} ({p.get('rating', '?')}★)"
             for i, p in enumerate(ranked[:3], start=1)
         )
         needs_time = "scheduled_at" in missing
         if language == "roman_ur":
             if needs_time:
-                return f"{names}. Kisko book karna hai aur kis time?"
-            return f"{names}. Kisko book karna hai aur kis time?"
+                return f"{names}. Kisko book karna hai aur kis time chahiye?"
+            return f"{names}. Kisko book karna chahte hain?"
         if needs_time:
-            return f"{names}. Which provider should I book, and what time?"
-        return f"{names}. Which provider should I book, and what time?"
+            return f"{names}. Which provider and what time do you need?"
+        return f"{names}. Which provider would you like to book?"
 
-    if "scheduled_at" in missing:
-        return "Kab chahiye - aaj, kal subah, ya specific time?" if language == "roman_ur" else "What time do you need - today, tomorrow morning, or a specific time?"
+    # Ask area first (needed for provider search), then time
+    if "area" in missing and "scheduled_at" in missing:
+        if language == "roman_ur":
+            return f"Kis sector mein chahiye — G-13, F-10, I-8? Aur kab?"
+        return f"Which sector (G-13, F-10, I-8) and when do you need the {service}?"
     if "area" in missing:
-        return "Kis sector mein - G-13, F-10, I-8?" if language == "roman_ur" else "Which sector - G-13, F-10, or I-8?"
+        if language == "roman_ur":
+            return "Kis sector mein — G-13, F-10, I-8?"
+        return "Which sector — G-13, F-10, or I-8?"
+    if "scheduled_at" in missing:
+        if language == "roman_ur":
+            return "Kab chahiye — kal subah, aaj sham, ya specific time?"
+        return "When do you need them — tomorrow morning, today evening, or a specific time?"
     if "service_type" in missing:
-        return "Kya service chahiye - AC technician, plumber, electrician, tutor, ya beautician?" if language == "roman_ur" else "What service do you need - AC tech, plumber, electrician, tutor, or beautician?"
+        return "Kya service chahiye — AC technician, plumber, electrician, tutor, ya beautician?" if language == "roman_ur" else "What service do you need — AC tech, plumber, electrician, tutor, or beautician?"
     return "Kya details confirm hain?" if language == "roman_ur" else "Can you confirm the details?"
 
 
@@ -962,11 +966,59 @@ def _build_clarifier_question(
     return text
 
 
+def _get_clarification_suggestions(intent: dict, missing: list[str], ranked: list[dict], language: str) -> list[str]:
+    """Return tappable quick-reply chips for the current missing slot."""
+    if ranked and "selected_provider" in missing:
+        names = [p.get("name", "") for p in ranked[:3] if p.get("name")]
+        return names[:3]
+    if "area" in missing:
+        return ["G-13", "F-10", "I-8", "G-9"]
+    if "scheduled_at" in missing:
+        if language == "roman_ur":
+            return ["Kal subah", "Aaj sham", "Kal dopahar"]
+        return ["Tomorrow 9am", "Today evening", "Tomorrow afternoon"]
+    if "service_type" in missing:
+        if language == "roman_ur":
+            return ["Plumber", "Electrician", "AC Technician", "Tutor"]
+        return ["Plumber", "Electrician", "AC Technician", "Beautician"]
+    return []
+
+
 @traced("clarifier")
 def clarifier(state: AgentState) -> dict:
     intent = state.get("intent") or {}
     rounds = int(state.get("clarify_rounds") or 0)
     log.info("  clarifier round %d", rounds + 1)
+
+    # ── Autonomous pass-through: no_results_handler expanded area automatically ──
+    auto_area = state.get("auto_search_area")
+    if auto_area:
+        prev_area = None
+        for k, v in (state.get("intent") or {}).items():
+            pass  # intent already updated; we just need to notify user
+        svc = _service_label(intent.get("service_type"))
+        original_area = None
+        for msg in (state.get("clarification_context") or []):
+            a = _extract_area(msg)
+            if a:
+                original_area = a
+                break
+        question = (
+            f"No {svc} in {original_area or 'that area'} — automatically checking {auto_area} instead."
+        )
+        T.upsert_conversation.invoke({
+            "conversation_id": state["conversation_id"],
+            "user_id": state["user_id"],
+            "status": "active",
+            "last_question": question,
+        })
+        extra = list(state.get("clarification_context") or []) + [auto_area]
+        return {
+            "auto_search_area": None,
+            "clarification_context": extra,
+            "question": question,
+            "suggestions": [],
+        }
 
     missing = _missing_slots(intent)
     tried_search = bool(intent.get("service_type") and intent.get("area"))
@@ -988,16 +1040,16 @@ def clarifier(state: AgentState) -> dict:
         latest_input, is_area_inquiry,
     )
 
-    T.upsert_conversation.invoke(
-        {
-            "conversation_id": state["conversation_id"],
-            "user_id": state["user_id"],
-            "status": "awaiting_user",
-            "last_question": question,
-        }
-    )
+    T.upsert_conversation.invoke({
+        "conversation_id": state["conversation_id"],
+        "user_id": state["user_id"],
+        "status": "awaiting_user",
+        "last_question": question,
+    })
 
-    reply = interrupt({"question": question})
+    suggestions = _get_clarification_suggestions(intent, missing, state.get("ranked") or [], intent.get("language") or "en")
+
+    reply = interrupt({"question": question, "suggestions": suggestions})
 
     extra = list(state.get("clarification_context") or [])
     if reply:
@@ -1010,6 +1062,7 @@ def clarifier(state: AgentState) -> dict:
         "clarify_rounds": rounds + 1,
         "clarification_context": extra,
         "question": question,
+        "suggestions": suggestions,
     }
 
 

@@ -47,6 +47,9 @@ class AgentState(TypedDict, total=False):
     # Audit
     trace_steps: list[dict[str, Any]]
 
+    # Autonomous agent helpers
+    auto_search_area: str | None   # set by no_results_handler to skip clarifier interrupt
+
     # Routing / terminal signalling
     status: str  # "completed" | "needs_clarification" | "abandoned"
     question: str | None

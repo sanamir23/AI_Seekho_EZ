@@ -23,6 +23,7 @@ from app.schemas.service_request import (
     ProviderBrief,
     ServiceRequestIn,
     SlotOption,
+    ThinkingStep,
 )
 
 log = logging.getLogger("agent")
@@ -58,6 +59,29 @@ _INJECTION_PATTERNS = [
     re.compile(r"</?(system|assistant)>", re.I),
 ]
 
+_THINKING_LABELS: dict[str, tuple[str, str]] = {
+    "intent_parser": ("Understanding request", "Reading service, area, time, and language."),
+    "provider_caller": ("Preparing provider search", "Choosing the right provider lookup."),
+    "tool_executor": ("Searching providers", "Checking verified providers in the database."),
+    "no_results_handler": ("Checking nearby coverage", "Looking for useful alternatives."),
+    "ranking": ("Ranking matches", "Comparing distance, rating, and availability."),
+    "slot_picker": ("Checking free slots", "Finding the earliest suitable appointment."),
+    "decision_and_format": ("Preparing answer", "Turning the match into a clear reply."),
+    "booking_step": ("Confirming booking", "Securing the selected provider and time."),
+    "followup_step": ("Setting reminder", "Scheduling the follow-up notification."),
+    "clarifier": ("Checking details", "Asking only for the missing information."),
+    "inquiry_formatter": ("Preparing options", "Summarizing available providers."),
+    "cancel_handler": ("Cancelling booking", "Finding and cancelling the matching appointment."),
+    "reschedule_handler": ("Rescheduling booking", "Finding the booking and applying the new time."),
+    "give_up": ("Stopping safely", "Pausing until the request is clearer."),
+}
+
+_DEFAULT_THINKING_BY_STATUS: dict[str, list[str]] = {
+    "completed": ["intent_parser", "provider_caller", "ranking", "decision_and_format"],
+    "needs_clarification": ["intent_parser", "clarifier"],
+    "abandoned": ["intent_parser", "give_up"],
+}
+
 
 def _sanitize_input(text: str) -> str:
     text = (text or "").strip()
@@ -66,9 +90,55 @@ def _sanitize_input(text: str) -> str:
     return text[:2000]
 
 
+def _build_thinking_steps(state: dict) -> list[ThinkingStep]:
+    status_ = state.get("status") or "needs_clarification"
+    nodes: list[tuple[str, int | None]] = []
+    seen: set[str] = set()
+
+    for step in state.get("trace_steps") or []:
+        if not isinstance(step, dict):
+            continue
+        key = str(step.get("node") or "").strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        ms_raw = step.get("ms")
+        ms = int(ms_raw) if isinstance(ms_raw, (int, float)) else None
+        nodes.append((key, ms))
+
+    if not nodes:
+        nodes = [
+            (key, None)
+            for key in _DEFAULT_THINKING_BY_STATUS.get(status_, ["intent_parser"])
+        ]
+
+    safe_steps: list[ThinkingStep] = []
+    for index, (key, ms) in enumerate(nodes):
+        title, detail = _THINKING_LABELS.get(
+            key,
+            ("Working on request", "Advancing the service request safely."),
+        )
+        step_status = "done"
+        if status_ == "needs_clarification" and index == len(nodes) - 1:
+            step_status = "waiting"
+        elif status_ == "abandoned" and index == len(nodes) - 1:
+            step_status = "stopped"
+        safe_steps.append(
+            ThinkingStep(
+                key=key,
+                title=title,
+                detail=detail,
+                status=step_status,
+                ms=ms,
+            )
+        )
+    return safe_steps
+
+
 def _build_response(state: dict, conversation_id: str) -> AgentRunOut:
     status_ = state.get("status")
     log.info("─── _build_response status=%s ───", status_)
+    thinking_steps = _build_thinking_steps(state)
 
     price_range = None
     pr = state.get("price_range")
@@ -106,6 +176,7 @@ def _build_response(state: dict, conversation_id: str) -> AgentRunOut:
         return AgentRunOut(
             status="completed",
             conversation_id=conversation_id,
+            thinking_steps=thinking_steps,
             intent=IntentParsed(**(state.get("intent") or {})),
             selected_provider=provider_brief,
             reasoning=state.get("reasoning"),
@@ -121,6 +192,7 @@ def _build_response(state: dict, conversation_id: str) -> AgentRunOut:
         return AgentRunOut(
             status="abandoned",
             conversation_id=conversation_id,
+            thinking_steps=thinking_steps,
             reason=state.get("reason"),
             partial_intent=IntentParsed(**(state.get("intent") or {})),
         )
@@ -150,10 +222,12 @@ def _build_response(state: dict, conversation_id: str) -> AgentRunOut:
     return AgentRunOut(
         status="needs_clarification",
         conversation_id=conversation_id,
+        thinking_steps=thinking_steps,
         question=state.get("question"),
         partial_intent=IntentParsed(**(state.get("intent") or {})),
         free_slots=slot_opts,
         alternatives=alternatives,
+        suggestions=state.get("suggestions"),
     )
 
 
@@ -192,6 +266,9 @@ def _idempotency_replay(user_id: str, key: str) -> AgentRunOut | None:
     return AgentRunOut(
         status="completed",
         conversation_id=row.get("conversation_id") or "",
+        thinking_steps=_build_thinking_steps(
+            {"status": "completed", "trace_steps": row.get("steps") or []}
+        ),
         intent=IntentParsed(**(row.get("parsed_intent") or {})),
         reasoning=row.get("reasoning"),
         trace_id=row["id"],

@@ -127,10 +127,39 @@ class PriceRange {
       );
 }
 
+class ThinkingStep {
+  final String key;
+  final String title;
+  final String detail;
+  final String status;
+  final int? ms;
+
+  const ThinkingStep({
+    required this.key,
+    required this.title,
+    required this.detail,
+    required this.status,
+    this.ms,
+  });
+
+  factory ThinkingStep.fromJson(Map<String, dynamic> j) => ThinkingStep(
+        key: j['key']?.toString() ?? '',
+        title: j['title']?.toString() ?? 'Working on request',
+        detail: j['detail']?.toString() ?? 'Advancing your request safely.',
+        status: j['status']?.toString() ?? 'done',
+        ms: j['ms'] is int
+            ? j['ms'] as int
+            : j['ms'] is num
+                ? (j['ms'] as num).round()
+                : null,
+      );
+}
+
 /// Top-level response from POST /api/service-requests
 class AgentRunOut {
   final String status; // completed | needs_clarification | abandoned
   final String conversationId;
+  final List<ThinkingStep>? thinkingSteps;
 
   // completed
   final IntentParsed? intent;
@@ -156,6 +185,7 @@ class AgentRunOut {
   const AgentRunOut({
     required this.status,
     required this.conversationId,
+    this.thinkingSteps,
     this.intent,
     this.selectedProvider,
     this.reasoning,
@@ -174,6 +204,17 @@ class AgentRunOut {
   });
 
   factory AgentRunOut.fromJson(Map<String, dynamic> j) {
+    List<ThinkingStep>? thinkingSteps;
+    try {
+      thinkingSteps = j['thinking_steps'] is List
+          ? (j['thinking_steps'] as List)
+              .map((s) => ThinkingStep.fromJson(s as Map<String, dynamic>))
+              .toList()
+          : null;
+    } catch (_) {
+      thinkingSteps = null;
+    }
+
     List<SlotOption>? slots;
     try {
       slots = j['free_slots'] != null
@@ -208,6 +249,7 @@ class AgentRunOut {
     return AgentRunOut(
       status: j['status']?.toString() ?? 'abandoned',
       conversationId: j['conversation_id']?.toString() ?? '',
+      thinkingSteps: thinkingSteps,
       intent:
           j['intent'] != null ? IntentParsed.fromJson(j['intent']) : null,
       selectedProvider: j['selected_provider'] != null

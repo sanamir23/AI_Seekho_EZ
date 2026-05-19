@@ -64,9 +64,18 @@ class PriceRange(BaseModel):
     max_pkr: int
 
 
+class ThinkingStep(BaseModel):
+    key: str
+    title: str
+    detail: str
+    status: Literal["done", "waiting", "stopped"]
+    ms: int | None = None
+
+
 class AgentRunOut(BaseModel):
     status: Literal["completed", "needs_clarification", "abandoned"]
     conversation_id: str
+    thinking_steps: list[ThinkingStep] | None = None
     # completed:
     intent: IntentParsed | None = None
     selected_provider: ProviderBrief | None = None

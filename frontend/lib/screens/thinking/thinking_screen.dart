@@ -40,6 +40,11 @@ class _ThinkingScreenState extends State<ThinkingScreen>
     'followup_step':      ('Setting reminder',        Icons.notifications_rounded,  'Scheduling follow-up alert…'),
     'clarifier':          ('Checking details',        Icons.quiz_rounded,           'Clarifying your request…'),
     'inquiry_formatter':  ('Preparing info',          Icons.info_outline_rounded,   'Formatting provider information…'),
+    'no_results_handler': ('Checking nearby coverage', Icons.travel_explore_rounded, 'Looking for useful alternatives…'),
+    'decision_and_format': ('Preparing response',     Icons.auto_awesome_rounded,   'Crafting your result…'),
+    'cancel_handler':     ('Cancelling booking',      Icons.cancel_outlined,        'Updating your appointment…'),
+    'reschedule_handler': ('Rescheduling booking',    Icons.event_repeat_rounded,   'Applying the new time…'),
+    'give_up':            ('Stopping safely',         Icons.info_outline_rounded,   'Waiting for clearer details…'),
   };
 
   // ── Fallback static steps shown while waiting for backend ────────────
@@ -59,7 +64,6 @@ class _ThinkingScreenState extends State<ThinkingScreen>
   ];
 
   List<_Step> _steps = List.from(_ThinkingScreenState._fallbackSteps);
-  bool _stepsFromBackend = false;
 
   @override
   void initState() {
@@ -86,6 +90,21 @@ class _ThinkingScreenState extends State<ThinkingScreen>
     widget.responseFuture.then((result) {
       if (!mounted) return;
 
+      if (result.thinkingSteps != null && result.thinkingSteps!.isNotEmpty) {
+        setState(() {
+          _steps = result.thinkingSteps!
+              .map((step) => _Step(
+                    step.key,
+                    _nodeLabels[step.key]?.$2 ?? Icons.auto_awesome_rounded,
+                    step.title,
+                    step.detail,
+                  ))
+              .toList();
+          _done.clear();
+          _done.addAll(List.generate(_steps.length, (i) => i));
+          _active = _steps.length - 1;
+        });
+      } else
       // ── Sync timeline steps from backend trace_steps ──────────────────
       if (result.traceSteps != null && result.traceSteps!.isNotEmpty) {
         final backendSteps = result.traceSteps!
@@ -101,7 +120,6 @@ class _ThinkingScreenState extends State<ThinkingScreen>
         if (backendSteps.isNotEmpty) {
           setState(() {
             _steps = backendSteps;
-            _stepsFromBackend = true;
             _done.clear();
             // Mark all steps as done since backend already finished
             _done.addAll(List.generate(_steps.length, (i) => i));

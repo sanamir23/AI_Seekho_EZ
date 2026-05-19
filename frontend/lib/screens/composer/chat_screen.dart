@@ -12,6 +12,7 @@ import '../../core/models/agent_response.dart';
 import '../../core/services/api_service.dart';
 import '../results/results_screen.dart';
 import '../confirm/confirm_screen.dart';
+import '../shell/app_shell.dart';
 
 enum MessageRole { user, agent }
 
@@ -78,8 +79,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
 
     if (widget.initialQuery != null && widget.initialQuery!.isNotEmpty) {
-      _textCtrl.text = widget.initialQuery!;
-      _sendMessage();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _textCtrl.text = widget.initialQuery!;
+        _sendMessage();
+      });
     }
   }
 
@@ -94,29 +97,27 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   void _scrollToBottom() {
     if (!_scrollCtrl.hasClients) return;
-    Future.delayed(const Duration(milliseconds: 100), () {
-      _scrollCtrl.animateTo(
-        _scrollCtrl.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
+    Future.delayed(const Duration(milliseconds: 120), () {
+      if (_scrollCtrl.hasClients) {
+        _scrollCtrl.animateTo(
+          _scrollCtrl.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
-  Future<void> _sendMessage() async {
-    final text = _textCtrl.text.trim();
-    if (text.isEmpty) return;
+  Future<void> _sendMessage([String? override]) async {
+    final text = (override ?? _textCtrl.text).trim();
+    if (text.isEmpty || _isSending) return;
 
-    final query = text;
     _textCtrl.clear();
 
     final userMsgId = DateTime.now().millisecondsSinceEpoch.toString();
     setState(() {
-      _messages.add(ChatMessage(
-        id: userMsgId,
-        role: MessageRole.user,
-        text: query,
-      ));
+      _messages
+          .add(ChatMessage(id: userMsgId, role: MessageRole.user, text: text));
       _isSending = true;
       _messages.add(ChatMessage(
         id: '${userMsgId}_think',
@@ -128,11 +129,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
     try {
       final response = await ApiService.instance.sendServiceRequest(
-        text: query,
+        text: text,
         conversationId: _conversationId,
       );
 
-      // Store conversation_id for follow-ups
       _conversationId = response.conversationId;
 
       if (mounted) {
@@ -172,15 +172,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         final path = await _record.stop();
         setState(() => _isRecording = false);
         if (path != null) {
-          // Transcribe and populate text field (don't auto-send)
           try {
             setState(() => _isSending = true);
-            final transcribed = await ApiService.instance.transcribeAudio(File(path));
+            final transcribed =
+                await ApiService.instance.transcribeAudio(File(path));
             if (mounted && transcribed.isNotEmpty) {
               _textCtrl.text = transcribed;
               _textCtrl.selection = TextSelection.fromPosition(
-                TextPosition(offset: transcribed.length),
-              );
+                  TextPosition(offset: transcribed.length));
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('Transcription ready — review and tap send'),
@@ -207,9 +206,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               builder: (_) => AlertDialog(
                 title: const Text('Microphone Permission'),
                 content: const Text(
-                  'EZ needs mic access to transcribe your voice. '
-                  'Please enable it in Settings.',
-                ),
+                    'EZ needs mic access. Please enable it in Settings.'),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(context),
@@ -222,7 +219,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           return;
         }
         final tempDir = await getTemporaryDirectory();
-        final path = '${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        final path =
+            '${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
         await _record.start(const RecordConfig(), path: path);
         setState(() => _isRecording = true);
       }
@@ -237,6 +235,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     }
   }
 
+  void _startNewChat() {
+    setState(() {
+      _messages.clear();
+      _conversationId = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -244,83 +249,106 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       statusBarIconBrightness: Brightness.dark,
     ));
 
+    final canPop = Navigator.canPop(context);
+
     return Scaffold(
       backgroundColor: EzColors.cream,
       body: SafeArea(
         child: Column(
           children: [
-            // â”€â”€ Header â”€â”€
+            // Header
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
               child: Row(
                 children: [
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: EzColors.white,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: EzColors.border),
-                        boxShadow: [
-                          BoxShadow(
-                              color: EzColors.ink.withOpacity(0.04),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2)),
-                        ],
-                      ),
-                      child: const Center(
-                        child: Icon(Icons.arrow_back_rounded,
-                            size: 18, color: EzColors.ink),
+                  if (canPop)
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: EzColors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: EzColors.border),
+                          boxShadow: [
+                            BoxShadow(
+                                color: EzColors.ink.withOpacity(0.04),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2)),
+                          ],
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.arrow_back_rounded,
+                              size: 18, color: EzColors.ink),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('EZ Agent',
-                          style: GoogleFonts.plusJakartaSans(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                              color: EzColors.ink)),
-                      Row(
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              color: EzColors.success,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                    color: EzColors.success.withOpacity(0.3),
-                                    spreadRadius: 2),
-                              ],
+                  if (canPop) const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('EZ Agent',
+                            style: GoogleFonts.plusJakartaSans(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                color: EzColors.ink)),
+                        Row(
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: EzColors.success,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                      color: EzColors.success.withOpacity(0.3),
+                                      spreadRadius: 2),
+                                ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 5),
-                          Text('Online & ready',
-                              style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 11,
-                                  color: EzColors.muted,
-                                  fontWeight: FontWeight.w600)),
-                        ],
-                      ),
-                    ],
+                            const SizedBox(width: 5),
+                            Text('Online & ready',
+                                style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 11,
+                                    color: EzColors.muted,
+                                    fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
+                  if (_messages.isNotEmpty)
+                    GestureDetector(
+                      onTap: _startNewChat,
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: EzColors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: EzColors.border),
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.edit_rounded,
+                              size: 16, color: EzColors.ink),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ).animate().fadeIn(duration: 300.ms),
 
-            // â”€â”€ Chat List â”€â”€
+            // Chat list
             Expanded(
               child: _isHeroPhase
                   ? _buildHero()
                   : ListView.builder(
                       controller: _scrollCtrl,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 16),
                       itemCount: _messages.length,
                       itemBuilder: (context, index) {
                         final msg = _messages[index];
@@ -333,7 +361,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                     ),
             ),
 
-            // â”€â”€ Input Area â”€â”€
+            // Input area
             _buildComposerInput(),
           ],
         ),
@@ -397,10 +425,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                         gradient: const LinearGradient(
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
-                          colors: [
-                            Color(0xFFFCD24A),
-                            Color(0xFFFFE988),
-                          ],
+                          colors: [Color(0xFFFCD24A), Color(0xFFFFE988)],
                         ),
                         borderRadius: BorderRadius.circular(24),
                         boxShadow: [
@@ -502,10 +527,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 .entries
                 .map((e) => _SuggestionChip(
                       suggestion: e.value,
-                      onTap: () {
-                        _textCtrl.text = e.value.label;
-                        _sendMessage();
-                      },
+                      onTap: () => _sendMessage(e.value.label),
                     )
                         .animate()
                         .fadeIn(
@@ -530,7 +552,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         12,
         10,
         12,
-        MediaQuery.of(context).viewInsets.bottom > 0 ? 12 : 24,
+        MediaQuery.of(context).viewInsets.bottom > 0 ? 12 : 20,
       ),
       child: Column(
         children: [
@@ -732,134 +754,267 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildThinkingTimeline() {
-    const steps = [
-      {'icon': Icons.auto_awesome_rounded, 'title': 'Understanding request', 'sub': 'Parsing your message...'},
-      {'icon': Icons.radar_rounded, 'title': 'Scanning nearby providers', 'sub': 'Searching within 5 km'},
-      {'icon': Icons.star_rounded, 'title': 'Checking ratings & reviews', 'sub': 'Filtered to 4.5\u2605 and above'},
-      {'icon': Icons.monetization_on_outlined, 'title': 'Comparing prices', 'sub': 'Finding best value'},
-      {'icon': Icons.calendar_today_rounded, 'title': 'Checking availability', 'sub': 'Matching your schedule'},
-    ];
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('+ REASONING',
-              style: GoogleFonts.plusJakartaSans(
-                  fontSize: 11, fontWeight: FontWeight.w800,
-                  color: EzColors.yellowDeep, letterSpacing: 1.2))
-              .animate().fadeIn(duration: 300.ms),
-          const SizedBox(height: 6),
-          RichText(
-            text: TextSpan(
-              style: GoogleFonts.plusJakartaSans(
-                  fontSize: 22, fontWeight: FontWeight.w700,
-                  color: EzColors.ink, height: 1.2),
-              children: [
-                const TextSpan(text: 'Thinking through '),
-                TextSpan(text: 'your request', style: TextStyle(color: EzColors.muted)),
-                const TextSpan(text: '...'),
-              ],
-            ),
-          ).animate().fadeIn(delay: 100.ms, duration: 400.ms),
-          const SizedBox(height: 20),
-          ...List.generate(steps.length, (i) {
-            final step = steps[i];
-            final isFirst = i == 0;
-            return Column(children: [
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                SizedBox(width: 40, child: Column(children: [
-                  Container(
-                    width: 34, height: 34,
-                    decoration: BoxDecoration(
-                      color: isFirst ? EzColors.yellow : EzColors.cream2,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: isFirst ? EzColors.yellowDeep : EzColors.border, width: 1.5),
-                    ),
-                    child: Icon(step['icon'] as IconData, size: 16,
-                        color: isFirst ? EzColors.ink : EzColors.muted),
-                  ),
-                  if (i < steps.length - 1) Container(width: 2, height: 28, color: EzColors.border),
-                ])),
-                const SizedBox(width: 10),
-                Expanded(child: Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(step['title'] as String, style: GoogleFonts.plusJakartaSans(
-                        fontSize: 14, fontWeight: FontWeight.w700,
-                        color: isFirst ? EzColors.ink : EzColors.muted)),
-                    const SizedBox(height: 2),
-                    Text(step['sub'] as String, style: GoogleFonts.plusJakartaSans(
-                        fontSize: 12, color: EzColors.muted, fontWeight: FontWeight.w500)),
-                  ]),
-                )),
-                if (isFirst) Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: EzColors.yellowGlow, borderRadius: BorderRadius.circular(6)),
-                  child: Text('RUNNING', style: GoogleFonts.plusJakartaSans(
-                      fontSize: 10, fontWeight: FontWeight.w800, color: EzColors.yellowDeep)),
-                ),
-              ]),
-            ]).animate().fadeIn(delay: Duration(milliseconds: 200 + i * 400), duration: 400.ms)
-                .slideX(begin: -0.05, end: 0);
-          }),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(color: EzColors.ink, borderRadius: BorderRadius.circular(14)),
-            child: Row(children: [
-              const SizedBox(width: 16, height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: EzColors.yellow)),
-              const SizedBox(width: 10),
-              Text('Finding the best match...', style: GoogleFonts.plusJakartaSans(
-                  fontSize: 13, fontWeight: FontWeight.w700, color: EzColors.white)),
-            ]),
-          ).animate().fadeIn(delay: 2200.ms, duration: 400.ms),
-        ],
-      ),
+  // ── helpers ──────────────────────────────────────────────────────────────
+
+  static String _fmtService(String s) => s
+      .replaceAll('_', ' ')
+      .split(' ')
+      .map((w) => w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1)}' : w)
+      .join(' ');
+
+  static String _fmtSlotTime(String iso) {
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      const months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec'
+      ];
+      final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+      final ampm = dt.hour < 12 ? 'AM' : 'PM';
+      final min =
+          dt.minute == 0 ? '' : ':${dt.minute.toString().padLeft(2, '0')}';
+      return '${months[dt.month - 1]} ${dt.day}, $h$min $ampm';
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  static IconData _thinkingIcon(String key) {
+    switch (key) {
+      case 'intent_parser':
+        return Icons.psychology_rounded;
+      case 'provider_caller':
+      case 'tool_executor':
+        return Icons.search_rounded;
+      case 'ranking':
+        return Icons.star_rounded;
+      case 'slot_picker':
+      case 'booking_step':
+        return Icons.calendar_today_rounded;
+      case 'followup_step':
+        return Icons.notifications_rounded;
+      case 'clarifier':
+        return Icons.quiz_rounded;
+      case 'no_results_handler':
+        return Icons.travel_explore_rounded;
+      case 'cancel_handler':
+        return Icons.cancel_outlined;
+      case 'reschedule_handler':
+        return Icons.event_repeat_rounded;
+      default:
+        return Icons.auto_awesome_rounded;
+    }
+  }
+
+  static List<Map<String, dynamic>> _thinkingStepMaps(
+      List<ThinkingStep> steps) {
+    return steps
+        .map((step) => {
+              'icon': _thinkingIcon(step.key),
+              'node': step.key,
+              'title': step.title,
+              'sub': step.detail,
+              'status': step.status,
+              if (step.ms != null) 'ms': step.ms,
+            })
+        .toList();
+  }
+
+  // Derive thinking steps from last known agent state + latest user message
+  List<Map<String, dynamic>> _getDynamicSteps() {
+    AgentRunOut? lastData;
+    for (int i = _messages.length - 1; i >= 0; i--) {
+      final m = _messages[i];
+      if (m.role == MessageRole.agent && !m.isThinking && m.agentData != null) {
+        lastData = m.agentData;
+        break;
+      }
+    }
+
+    // Also peek at the latest user message to pick up service/area hints
+    String latestUserText = '';
+    for (int i = _messages.length - 1; i >= 0; i--) {
+      final m = _messages[i];
+      if (m.role == MessageRole.user && m.text != null) {
+        latestUserText = m.text!.toLowerCase();
+        break;
+      }
+    }
+
+    return buildDynamicThinkingStepsForAgent(
+      lastData: lastData,
+      latestUserText: latestUserText,
     );
   }
 
-  Widget _buildAgentBubble(ChatMessage msg) {
-    if (msg.isThinking) {
-      return _buildThinkingTimeline();
-    }
+  Widget _buildThinkingTimeline() {
+    return _ThinkingTimeline(
+      steps: _getDynamicSteps(),
+      progressLabel: _getProgressLabel(),
+    );
+  }
 
-    // Determine the content to show based on AgentRunOut or raw text
+  String _getProgressLabel() {
+    final lastData = _messages.reversed
+        .where((m) =>
+            m.role == MessageRole.agent && !m.isThinking && m.agentData != null)
+        .map((m) => m.agentData!)
+        .firstOrNull;
+    final pi = lastData?.partialIntent ?? lastData?.intent;
+    if (pi?.serviceType != null &&
+        pi?.area != null &&
+        pi?.scheduledAt != null) {
+      return 'Booking your ${_fmtService(pi!.serviceType!)}...';
+    }
+    if (pi?.serviceType != null && pi?.area != null) {
+      return 'Finding ${_fmtService(pi!.serviceType!)}s in ${pi.area}...';
+    }
+    if (pi?.serviceType != null) {
+      return 'Looking for ${_fmtService(pi!.serviceType!)}s nearby...';
+    }
+    return 'Finding the best match...';
+  }
+
+  Widget _buildAgentBubble(ChatMessage msg) {
+    if (msg.isThinking) return _buildThinkingTimeline();
+
     final content = <Widget>[];
 
     if (msg.text != null) {
-      content.add(Text(
-        msg.text!,
-        style: GoogleFonts.plusJakartaSans(
-          color: EzColors.ink,
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-          height: 1.4,
-        ),
-      ));
+      content.add(_agentText(msg.text!));
     }
 
     if (msg.agentData != null) {
       final data = msg.agentData!;
 
-      // AI Insight / Reasoning or Clarification
+      // ── "What I understood" chips (clarification rounds) ──
+      if (data.status == 'needs_clarification' && data.partialIntent != null) {
+        final pi = data.partialIntent!;
+        final chips = <String>[];
+        if (pi.serviceType != null)
+          chips.add('✓ ${_fmtService(pi.serviceType!)}');
+        if (pi.area != null) chips.add('✓ ${pi.area}');
+        if (pi.scheduledAt != null)
+          chips.add('✓ ${_fmtSlotTime(pi.scheduledAt!)}');
+        if (chips.isNotEmpty) {
+          content.add(Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: chips
+                .map((c) => Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: EzColors.yellowGlow,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: EzColors.yellow, width: 1),
+                      ),
+                      child: Text(c,
+                          style: GoogleFonts.plusJakartaSans(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: EzColors.ink)),
+                    ))
+                .toList(),
+          ));
+          content.add(const SizedBox(height: 8));
+        }
+      }
+
+      // Message / clarification question
       final textToShow =
           data.formattedMessage ?? data.reasoning ?? data.question;
       if (textToShow != null && textToShow.isNotEmpty) {
-        content.add(Text(
-          textToShow,
-          style: GoogleFonts.plusJakartaSans(
-            color: EzColors.ink,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            height: 1.4,
-          ),
-        ));
+        content.add(_agentText(textToShow));
       }
 
-      if (data.status == 'needs_clarification' && data.suggestions != null) {
+      // ── Availability slots (cards) ──
+      if (data.freeSlots != null && data.freeSlots!.isNotEmpty) {
+        content.add(const SizedBox(height: 14));
+        content.add(
+          Row(
+            children: [
+              const Icon(Icons.calendar_today_rounded,
+                  size: 12, color: EzColors.yellowDeep),
+              const SizedBox(width: 5),
+              Text('Available slots',
+                  style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: EzColors.inkSoft,
+                      letterSpacing: 0.3)),
+            ],
+          ),
+        );
+        content.add(const SizedBox(height: 8));
+        content.add(
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: data.freeSlots!.map((slot) {
+                return GestureDetector(
+                  onTap: () => _sendMessage(slot.label),
+                  child: Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: EzColors.yellowGlow,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: EzColors.yellow, width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                            color: EzColors.yellowDeep.withOpacity(0.12),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3)),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.access_time_rounded,
+                                size: 11, color: EzColors.yellowDeep),
+                            const SizedBox(width: 4),
+                            Text(slot.label,
+                                style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: EzColors.ink)),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text('Tap to select',
+                            style: GoogleFonts.plusJakartaSans(
+                                fontSize: 9.5,
+                                color: EzColors.muted,
+                                fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        );
+      }
+
+      // ── Suggestion / quick-reply chips ──
+      if (data.suggestions != null && data.suggestions!.isNotEmpty) {
+        // For completed status, suggestions are nav actions (View bookings etc)
+        // For needs_clarification, they are quick answers to type
+        final isNavSuggestions = data.status == 'completed';
         content.add(const SizedBox(height: 12));
         content.add(Wrap(
           spacing: 8,
@@ -867,8 +1022,12 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           children: data.suggestions!
               .map((s) => GestureDetector(
                     onTap: () {
-                      _textCtrl.text = s;
-                      _sendMessage();
+                      if (isNavSuggestions &&
+                          s.toLowerCase().contains('booking')) {
+                        AppShell.of(context)?.switchTo(1);
+                      } else {
+                        _sendMessage(s);
+                      }
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
@@ -876,7 +1035,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                       decoration: BoxDecoration(
                         color: EzColors.white,
                         borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: EzColors.yellow),
+                        border: Border.all(
+                            color: isNavSuggestions
+                                ? EzColors.border
+                                : EzColors.yellow),
                       ),
                       child: Text(s,
                           style: GoogleFonts.plusJakartaSans(
@@ -889,7 +1051,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         ));
       }
 
-      // Selected Provider
+      // ── Selected Provider card ──
       if (data.selectedProvider != null) {
         content.add(const SizedBox(height: 16));
         final p = data.selectedProvider!;
@@ -898,7 +1060,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         if (data.booking != null) {
           try {
             final dt = DateTime.parse(data.booking!.scheduledAt).toLocal();
-            final months = [
+            const months = [
               'Jan',
               'Feb',
               'Mar',
@@ -924,15 +1086,19 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         content.add(ProviderCard(
           rank: 1,
           name: p.name,
-          shop: 'Provider',
+          shop: p.category
+              .replaceAll('_', ' ')
+              .split(' ')
+              .map((w) =>
+                  w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1)}' : w)
+              .join(' '),
           rating: p.rating ?? 4.5,
           distance: p.distanceKm != null
               ? '${p.distanceKm!.toStringAsFixed(1)} km'
               : (p.area ?? ''),
           price: '',
           slot: slotText,
-          reasons:
-              data.suggestions?.take(3).toList() ?? ['AI Matched', 'Verified'],
+          reasons: ['AI Matched', 'Top Rated', 'Verified'],
           accent: const Color(0xFFFCD24A),
           isAiPick: true,
           onBook: () {
@@ -950,31 +1116,47 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         ));
       }
 
-      // Alternatives
+      // ── Alternatives ──
       if (data.alternatives != null && data.alternatives!.isNotEmpty) {
-        content.add(const SizedBox(height: 12));
-        content.add(Text('Other Options',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: EzColors.muted,
-            )));
+        content.add(const SizedBox(height: 16));
+        content.add(
+          Row(
+            children: [
+              const Icon(Icons.list_alt_rounded,
+                  size: 12, color: EzColors.muted),
+              const SizedBox(width: 5),
+              Text('Other Options',
+                  style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: EzColors.muted,
+                      letterSpacing: 0.3)),
+            ],
+          ),
+        );
         content.add(const SizedBox(height: 8));
 
-        for (final alt in data.alternatives!) {
+        for (int i = 0; i < data.alternatives!.length; i++) {
+          final alt = data.alternatives![i];
           content.add(Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: ProviderCard(
-              rank: 2,
+              rank: i + 2,
               name: alt.name,
-              shop: 'Provider',
+              shop: alt.category
+                  .replaceAll('_', ' ')
+                  .split(' ')
+                  .map((w) => w.isNotEmpty
+                      ? '${w[0].toUpperCase()}${w.substring(1)}'
+                      : w)
+                  .join(' '),
               rating: alt.rating ?? 4.5,
               distance: alt.distanceKm != null
                   ? '${alt.distanceKm!.toStringAsFixed(1)} km'
                   : (alt.area ?? ''),
               price: '',
               slot: 'Available today',
-              reasons: ['Verified'],
+              reasons: ['Verified', if (alt.score != null) 'Ranked #${i + 2}'],
               accent: const Color(0xFFF4EFE2),
               isAiPick: false,
               onBook: () {
@@ -993,7 +1175,53 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           ));
         }
       }
+
+      // ── Agent reasoning trace (collapsible) ──
+      final safeThinkingSteps = data.thinkingSteps != null
+          ? _thinkingStepMaps(data.thinkingSteps!)
+          : null;
+      if (data.status == 'completed' &&
+          ((safeThinkingSteps != null && safeThinkingSteps.isNotEmpty) ||
+              (data.traceSteps != null && data.traceSteps!.isNotEmpty))) {
+        content.add(const SizedBox(height: 12));
+        content.add(
+            _AgentTraceSection(steps: safeThinkingSteps ?? data.traceSteps!));
+      }
+
+      // ── Abandoned / no provider ──
+      if (data.status == 'abandoned' &&
+          data.selectedProvider == null &&
+          data.formattedMessage == null) {
+        content.add(const SizedBox(height: 8));
+        content.add(Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: EzColors.cream2,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: EzColors.border),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.info_outline_rounded,
+                  size: 16, color: EzColors.muted),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  data.reason ??
+                      'No provider found for your request. Please try again.',
+                  style: GoogleFonts.plusJakartaSans(
+                      fontSize: 13,
+                      color: EzColors.inkSoft,
+                      fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+        ));
+      }
     }
+
+    if (content.isEmpty) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -1035,6 +1263,414 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           .animate()
           .fadeIn(duration: 300.ms)
           .slideY(begin: 0.1, end: 0, duration: 300.ms),
+    );
+  }
+
+  Widget _agentText(String text) => Text(
+        text,
+        style: GoogleFonts.plusJakartaSans(
+          color: EzColors.ink,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          height: 1.4,
+        ),
+      );
+}
+
+// ── Collapsible agent reasoning trace ────────────────────────────────────────
+@visibleForTesting
+List<Map<String, dynamic>> buildDynamicThinkingStepsForAgent({
+  required AgentRunOut? lastData,
+  required String latestUserText,
+}) {
+  if (lastData?.thinkingSteps != null && lastData!.thinkingSteps!.isNotEmpty) {
+    return _ChatScreenState._thinkingStepMaps(lastData.thinkingSteps!);
+  }
+
+  final text = latestUserText.toLowerCase();
+  final intent = lastData?.partialIntent ?? lastData?.intent;
+  final serviceLabel = _inferServiceLabel(text) ??
+      (intent?.serviceType != null
+          ? _ChatScreenState._fmtService(intent!.serviceType!)
+          : null);
+  final areaLabel = _inferAreaLabel(text) ?? intent?.area;
+  final hasService = serviceLabel != null ||
+      RegExp(r'plumb|electr|ac\b|technician|beautician|tutor|clean')
+          .hasMatch(text);
+  final hasArea = areaLabel != null;
+  final hasTime = intent?.scheduledAt != null ||
+      RegExp(r'\b(today|tomorrow|kal|aaj|\d{1,2}\s*(am|pm|baje))\b')
+          .hasMatch(text);
+
+  if (lastData == null || (!hasService && !hasArea)) {
+    return [
+      {
+        'icon': Icons.auto_awesome_rounded,
+        'title': 'Reading your request',
+        'sub': 'Figuring out what you need',
+      },
+      {
+        'icon': Icons.search_rounded,
+        'title': 'Scanning Islamabad',
+        'sub': 'Looking for nearby providers',
+      },
+      {
+        'icon': Icons.star_rounded,
+        'title': 'Ranking by quality',
+        'sub': 'Rating, distance & availability',
+      },
+    ];
+  }
+  if (hasService && hasArea && hasTime) {
+    return [
+      {
+        'icon': Icons.verified_rounded,
+        'title': 'All details confirmed',
+        'sub': '$serviceLabel - $areaLabel',
+      },
+      {
+        'icon': Icons.calendar_today_rounded,
+        'title': 'Checking provider',
+        'sub': 'Confirming availability',
+      },
+      {
+        'icon': Icons.bookmark_add_rounded,
+        'title': 'Creating booking',
+        'sub': 'Almost there!',
+      },
+    ];
+  }
+  if (hasService && hasArea) {
+    return [
+      {
+        'icon': Icons.location_on_rounded,
+        'title': 'Got your area',
+        'sub': areaLabel,
+      },
+      {
+        'icon': Icons.search_rounded,
+        'title': 'Finding ${serviceLabel}s',
+        'sub': 'Searching nearby',
+      },
+      {
+        'icon': Icons.calendar_today_rounded,
+        'title': 'Checking free slots',
+        'sub': 'Matching your schedule',
+      },
+    ];
+  }
+  if (hasService) {
+    final svc = serviceLabel ?? 'Provider';
+    return [
+      {
+        'icon': Icons.check_rounded,
+        'title': 'Got it - $svc',
+        'sub': 'Now finding your area',
+      },
+      {
+        'icon': Icons.search_rounded,
+        'title': 'Searching providers',
+        'sub': 'Scanning Islamabad',
+      },
+    ];
+  }
+  return [
+    {
+      'icon': Icons.auto_awesome_rounded,
+      'title': 'Processing your reply',
+      'sub': 'Updating search context',
+    },
+    {
+      'icon': Icons.search_rounded,
+      'title': 'Finding best match',
+      'sub': 'Almost there',
+    },
+  ];
+}
+
+String? _inferServiceLabel(String text) {
+  if (RegExp(r'plumb|tap|pipe|leak').hasMatch(text)) return 'Plumber';
+  if (RegExp(r'electr|light|switch|wiring').hasMatch(text)) {
+    return 'Electrician';
+  }
+  if (RegExp(r'\bac\b|air\s*condition|cooling').hasMatch(text)) {
+    return 'AC Technician';
+  }
+  if (RegExp(r'beautician|salon|makeup').hasMatch(text)) return 'Beautician';
+  if (RegExp(r'tutor|teacher|study').hasMatch(text)) return 'Tutor';
+  if (RegExp(r'clean|deep\s*house').hasMatch(text)) return 'Cleaner';
+  if (RegExp(r'technician|provider').hasMatch(text)) return 'Provider';
+  return null;
+}
+
+String? _inferAreaLabel(String text) {
+  final match = RegExp(r'\b([a-i])-?\s*(\d{1,2})\b', caseSensitive: false)
+      .firstMatch(text);
+  if (match == null) return null;
+  return '${match.group(1)!.toUpperCase()}-${match.group(2)}';
+}
+
+class _AgentTraceSection extends StatefulWidget {
+  final List<Map<String, dynamic>> steps;
+  const _AgentTraceSection({required this.steps});
+
+  @override
+  State<_AgentTraceSection> createState() => _AgentTraceSectionState();
+}
+
+class _AgentTraceSectionState extends State<_AgentTraceSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: EzColors.cream2,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: EzColors.border),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _expanded
+                      ? Icons.expand_less_rounded
+                      : Icons.auto_awesome_rounded,
+                  size: 13,
+                  color: EzColors.muted,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  _expanded ? 'Hide agent steps' : 'How I got here',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: EzColors.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_expanded) ...[
+          const SizedBox(height: 8),
+          ...widget.steps.map((step) {
+            final node = step['node'] as String? ?? '';
+            final title = step['title'] as String? ?? node;
+            final ms = step['ms'] as num?;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    margin: const EdgeInsets.only(top: 5),
+                    decoration: const BoxDecoration(
+                      color: EzColors.yellowDeep,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      ms != null ? '$title  ${ms.round()}ms' : title,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 11,
+                        color: EzColors.inkSoft,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ],
+    );
+  }
+}
+
+// ── Progressive thinking timeline ────────────────────────────────────────────
+class _ThinkingTimeline extends StatefulWidget {
+  final List<Map<String, dynamic>> steps;
+  final String progressLabel;
+  const _ThinkingTimeline({required this.steps, required this.progressLabel});
+
+  @override
+  State<_ThinkingTimeline> createState() => _ThinkingTimelineState();
+}
+
+class _ThinkingTimelineState extends State<_ThinkingTimeline> {
+  int _activeStep = 0;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 900), (_) {
+      if (mounted && _activeStep < widget.steps.length - 1) {
+        setState(() => _activeStep++);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = widget.steps;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('+ WORKING',
+                  style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: EzColors.yellowDeep,
+                      letterSpacing: 1.2))
+              .animate()
+              .fadeIn(duration: 300.ms),
+          const SizedBox(height: 6),
+          RichText(
+            text: TextSpan(
+              style: GoogleFonts.plusJakartaSans(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: EzColors.ink,
+                  height: 1.2),
+              children: [
+                const TextSpan(text: 'Thinking through '),
+                TextSpan(
+                    text: 'your request',
+                    style: const TextStyle(color: EzColors.muted)),
+                const TextSpan(text: '...'),
+              ],
+            ),
+          ).animate().fadeIn(delay: 100.ms, duration: 400.ms),
+          const SizedBox(height: 20),
+          ...List.generate(steps.length, (i) {
+            final step = steps[i];
+            final isDone = i < _activeStep;
+            final isActive = i == _activeStep;
+            final stepDelay = Duration(milliseconds: 150 + i * 200);
+
+            Color iconBg;
+            Color iconColor;
+            Color borderColor;
+            if (isDone) {
+              iconBg = const Color(0xFFD4F0DC);
+              iconColor = const Color(0xFF2E7D4F);
+              borderColor = const Color(0xFF7BC89A);
+            } else if (isActive) {
+              iconBg = EzColors.yellow;
+              iconColor = EzColors.ink;
+              borderColor = EzColors.yellowDeep;
+            } else {
+              iconBg = EzColors.cream2;
+              iconColor = EzColors.muted;
+              borderColor = EzColors.border;
+            }
+
+            return Column(children: [
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                SizedBox(
+                    width: 40,
+                    child: Column(children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 400),
+                        curve: Curves.easeOut,
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: iconBg,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: borderColor, width: 1.5),
+                        ),
+                        child: isDone
+                            ? const Icon(Icons.check_rounded,
+                                size: 16, color: Color(0xFF2E7D4F))
+                            : Icon(step['icon'] as IconData,
+                                size: 16, color: iconColor),
+                      ),
+                      if (i < steps.length - 1)
+                        Container(width: 2, height: 28, color: EzColors.border),
+                    ])),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(step['title'] as String,
+                            style: GoogleFonts.plusJakartaSans(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: (isDone || isActive)
+                                    ? EzColors.ink
+                                    : EzColors.muted)),
+                        const SizedBox(height: 2),
+                        Text(step['sub'] as String,
+                            style: GoogleFonts.plusJakartaSans(
+                                fontSize: 11,
+                                color: EzColors.muted,
+                                fontWeight: FontWeight.w500)),
+                      ]),
+                )),
+                if (isActive)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                        color: EzColors.yellowGlow,
+                        borderRadius: BorderRadius.circular(6)),
+                    child: Text('NOW',
+                        style: GoogleFonts.plusJakartaSans(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: EzColors.yellowDeep)),
+                  ),
+              ]),
+            ]).animate().fadeIn(delay: stepDelay, duration: 350.ms).slideX(
+                begin: -0.04, end: 0, delay: stepDelay, duration: 350.ms);
+          }),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+                color: EzColors.ink, borderRadius: BorderRadius.circular(14)),
+            child: Row(children: [
+              const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: EzColors.yellow)),
+              const SizedBox(width: 10),
+              Text(widget.progressLabel,
+                  style: GoogleFonts.plusJakartaSans(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: EzColors.white)),
+            ]),
+          ).animate().fadeIn(
+              delay: const Duration(milliseconds: 1200), duration: 400.ms),
+        ],
+      ),
     );
   }
 }
