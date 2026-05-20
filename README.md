@@ -171,6 +171,204 @@ flowchart TD
 
 ---
 
+## Notifications & Reminder Scheduler
+
+EZ implements a fully in-process, crash-recoverable notification pipeline using **APScheduler** (BackgroundScheduler) paired with a `notifications` table in Supabase Postgres.
+
+### How It Works
+
+```
+booking_step  ──►  followup_step  ──►  insert_notification (Supabase)
+                                            │
+                                            ▼
+                                   schedule_reminder()
+                                   (APScheduler "date" job)
+                                            │
+                                     [fires at remind_at]
+                                            │
+                                            ▼
+                               dispatch_notification()
+                               mark_notification_sent()  ──►  Supabase update
+```
+
+1. **`followup_step`** (`app/agents/nodes.py`) — Runs immediately after a booking is confirmed. It calculates `remind_at` (1 hour before the appointment, or `demo_offset_seconds` from now for live demos) and persists a row to the `notifications` table via `T.insert_notification`.
+
+2. **`schedule_reminder()`** (`app/scheduler/runtime.py`) — Registers a one-shot APScheduler `date` job keyed by `notif:<notification_id>`. The `misfire_grace_time` is set to 3 600 s (one hour) so a brief server restart will not silently drop a reminder that fired while the process was down.
+
+3. **`dispatch_notification()`** (`app/scheduler/jobs.py`) — Called by APScheduler at `remind_at`. Currently logs the reminder and calls `mark_notification_sent()` to stamp the `sent_at` column in Supabase (simulating a push notification). In production this hook is where FCM / APNs / SMS delivery would be wired in.
+
+4. **Crash recovery — `requeue_due_notifications()`** (`app/scheduler/jobs.py`) — Called once during `start_scheduler()` at process boot. It queries the DB for all unsent notifications whose `scheduled_at` is in the future and re-registers them as APScheduler jobs, ensuring no reminders are lost after a process restart or container redeploy.
+
+5. **Slot-hold expiry — `expire_holds_job()`** — Runs every 30 seconds to sweep booking rows stuck in `held` status (e.g., abandoned mid-flow), freeing the slot for other users.
+
+### Notifications Table Schema
+
+```sql
+-- From supabase/migrations/001_init.sql
+CREATE TABLE notifications (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    booking_id   UUID REFERENCES bookings(id) ON DELETE CASCADE,
+    kind         TEXT NOT NULL,            -- 'reminder' | 'confirmation' | etc.
+    scheduled_at TIMESTAMPTZ NOT NULL,     -- when the job should fire
+    sent_at      TIMESTAMPTZ,              -- NULL until dispatched
+    payload      JSONB                     -- { message, booking_id, ... }
+);
+```
+
+### Demo Mode
+
+Pass `demo_offset_seconds=30` in the `/api/service-requests` request body to have the reminder fire 30 seconds after booking — useful for live hackathon demos:
+
+```json
+{
+  "text": "plumber chahiye G-11 mein kal 3 baje",
+  "demo_offset_seconds": 30
+}
+```
+
+---
+
+## Local Development Setup
+
+### Prerequisites
+
+| Tool | Version |
+|------|---------|
+| Python | 3.11+ |
+| Flutter SDK | 3.x |
+| Supabase project | any region |
+| Google Gemini API key | `gemini-2.5-flash` model |
+
+### 1. Clone & Configure Environment
+
+```powershell
+git clone <repo-url>
+cd ez_app/backend
+
+# Copy and fill in the template
+copy .env.example .env
+```
+
+Required environment variables in `backend/.env`:
+
+| Variable | Description |
+|---|---|
+| `SUPABASE_URL` | Your Supabase project URL (`https://<ref>.supabase.co`) |
+| `SUPABASE_ANON_KEY` | Supabase anonymous/public key |
+| `SUPABASE_SERVICE_KEY` | Supabase service-role key (bypasses RLS for backend writes) |
+| `SUPABASE_DB_URL` | Direct Postgres URI for LangGraph's PostgresSaver checkpointer |
+| `GEMINI_API_KEY` | Google Gemini API key |
+| `GEMINI_MODEL` | Model name (default: `gemini-2.5-flash`) |
+| `GOOGLE_PLACES_API_KEY` | Used by provider seeding script |
+| `APP_HOST` | `0.0.0.0` |
+| `APP_PORT` | `8000` |
+| `FRONTEND_ORIGIN` | IP/hostname the Flutter app connects from (for CORS) |
+
+### 2. Database Migrations
+
+Run migrations **in order** from the Supabase SQL editor (Dashboard → SQL Editor):
+
+```
+supabase/migrations/001_init.sql          ← Core tables: profiles, providers, bookings, notifications, agent_traces
+supabase/migrations/002_conflict_prevention.sql  ← Booking conflict-prevention triggers
+supabase/migrations/003_agent_features.sql       ← Waitlist, price ranges
+supabase/migrations/004_agent_features_part2.sql ← Free-slots, holds, user-profile extras
+```
+
+### 3. Install & Run Backend
+
+```powershell
+cd backend
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+# Seed provider data (Islamabad, 5 service categories)
+python -m scripts.seed_providers
+
+# Start dev server with hot-reload
+uvicorn app.main:app --reload --port 8000
+```
+
+The API will be available at `http://localhost:8000`.  
+Interactive docs: `http://localhost:8000/api/docs`
+
+### 4. Run Flutter Frontend
+
+```powershell
+cd frontend
+flutter pub get
+flutter run
+```
+
+> **Physical device on Windows**: The Flutter app targets the machine's LAN IP, not `localhost`. Make sure to set `FRONTEND_ORIGIN` in `.env` to match your machine's IP (e.g. `http://192.168.x.x:8000`) and allow port 8000 through the Windows Firewall, or use an ngrok/Localtunnel tunnel.
+
+---
+
+## Deployment
+
+### Docker (Backend)
+
+The backend ships with a `Dockerfile` at `backend/Dockerfile` configured for **Google Cloud Run** (but compatible with any container host).
+
+```powershell
+# Build the image from the backend directory
+cd backend
+docker build -t ez-backend .
+
+# Run locally (mirrors Cloud Run behaviour)
+docker run --env-file .env -p 8080:8080 ez-backend
+```
+
+The container starts uvicorn on `$PORT` (injected at runtime by Cloud Run; defaults to `8080`):
+
+```dockerfile
+ENV PORT=8080
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+```
+
+### Google Cloud Run
+
+```bash
+# Authenticate and set project
+gcloud auth login
+gcloud config set project <your-gcp-project>
+
+# Build & push via Cloud Build
+gcloud builds submit --tag gcr.io/<your-gcp-project>/ez-backend ./backend
+
+# Deploy to Cloud Run (set all env vars as secrets or --set-env-vars)
+gcloud run deploy ez-backend \
+  --image gcr.io/<your-gcp-project>/ez-backend \
+  --platform managed \
+  --region asia-south1 \
+  --allow-unauthenticated \
+  --set-env-vars "SUPABASE_URL=...,SUPABASE_ANON_KEY=...,GEMINI_API_KEY=..."
+```
+
+> **Important**: APScheduler runs **in-process** in a background thread. Cloud Run scales to zero by default, which will terminate all in-memory scheduled jobs. To keep reminders reliable in production:
+> - Set **minimum instances = 1** (`--min-instances 1`) in Cloud Run, **or**
+> - Replace APScheduler with a durable queue (e.g., Cloud Tasks, Google Pub/Sub) for production workloads.
+
+### Flutter Mobile Build
+
+```powershell
+cd frontend
+
+# Android APK (debug)
+flutter build apk --debug
+
+# Android APK (release — requires keystore configuration)
+flutter build apk --release
+
+# iOS (requires macOS + Xcode)
+flutter build ios --release
+```
+
+Point the app's base URL constant to your deployed Cloud Run service URL before building for release.
+
+---
+
 ## Agent Traces (Submission Directory)
 
 All planning steps, walkthroughs, and checklists created by the Antigravity assistant during the course of the project can be reviewed under the `/agent_traces` directory in the root of this project.
