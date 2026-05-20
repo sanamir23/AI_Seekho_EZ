@@ -2,15 +2,18 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
+# Install system dependencies needed by some Python packages
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
+# Copy application code (venv and .env excluded via .dockerignore)
 COPY . .
 
-# Cloud Run sets the PORT environment variable (default is 8080)
+# Cloud Run injects PORT at runtime; default to 8080
 ENV PORT=8080
 
-# Command to run the application
-CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT
+# Use sh -c so $PORT is shell-expanded at container start
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]

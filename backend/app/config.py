@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     supabase_db_url: str
 
     gemini_api_key: str
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-2.0-flash-lite"
     gemini_fast_model: str | None = None
 
     google_places_api_key: str
