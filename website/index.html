@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EZ | Smart Home Services</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css">
+</head>
+
+<body>
+  <!-- Floating Navbar -->
+  <nav class="nav-wrapper">
+    <div class="nav-floating-pill">
+      <a href="#" class="nav-brand">EZ</a>
+      <div class="nav-links-center">
+        <a href="#overview" class="active">Overview</a>
+        <a href="#walkthrough">Flow</a>
+        <a href="#features">Features</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <header id="overview" class="hero">
+    <!-- Soft ambient glow to match background color preference -->
+    <div class="shape shape-1"></div>
+
+    <div class="container hero-container">
+
+      <h1 class="hero-title">Home services at your<br>fingertips</h1>
+      <p class="hero-subtitle">
+        Find the right home service through AI.<br>
+        Just tell us what you need - in Urdu or English.
+      </p>
+
+      <div class="hero-search-container">
+        <div class="hero-search-box">
+          <div class="search-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sparkles"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+          </div>
+          <input type="text" class="hero-search-input" placeholder="e.g. 'Mera AC cooling nahi kar raha...'" readonly>
+          <button class="hero-search-btn">
+            <span class="mic-btn">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-mic"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+            </span>
+          </button>
+        </div>
+        <div class="search-suggestions">
+          <span>Try:</span>
+          <span class="sugg-tag">Geyser repair</span>
+          <span class="sugg-tag">Plumber for leaking pipe</span>
+          <span class="sugg-tag">House deep cleaning</span>
+        </div>
+      </div>
+
+
+
+    </div>
+  </header>
+
+  <!-- How it works (Walkthrough) -->
+  <section id="walkthrough" class="section walkthrough-section">
+    <div class="container">
+      <div class="section-head text-center mb-48">
+        <h2 class="section-title">How EZ works</h2>
+        <p class="section-subtitle">Three simple steps to get any job done.</p>
+      </div>
+
+      <div class="walkthrough-container">
+        <!-- Timeline Indicator -->
+        <div class="timeline">
+          <div class="timeline-line">
+            <div class="timeline-progress" id="timeline-progress"></div>
+          </div>
+          <div class="timeline-nodes">
+            <div class="node active" data-step="0"></div>
+            <div class="node" data-step="1"></div>
+            <div class="node" data-step="2"></div>
+          </div>
+        </div>
+
+        <!-- Stages -->
+        <div class="stages">
+          <!-- Stage 1 -->
+          <div class="stage active" id="stage-0">
+            <div class="stage-visual">
+              <div class="visual-box">
+                <div class="v-css-art mic-art">
+                  <div class="mic-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-mic"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+                  </div>
+                  <div class="soundwaves"><span></span><span></span><span></span><span></span><span></span></div>
+                </div>
+              </div>
+            </div>
+            <h3>1. Describe</h3>
+            <p>Just say or type what you need in Urdu, English, or Roman. Our AI understands your intent instantly.</p>
+          </div>
+
+          <!-- Stage 2 -->
+          <div class="stage" id="stage-1">
+            <div class="stage-visual">
+              <div class="visual-box">
+                <div class="v-css-art map-art">
+                  <div class="map-grid"></div>
+                  <div class="radar"></div>
+                  <div class="pin">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-map-pin"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <h3>2. Match</h3>
+            <p>We automatically find the nearest, highest-rated professionals and negotiate the fastest ETA.</p>
+          </div>
+
+          <!-- Stage 3 -->
+          <div class="stage" id="stage-2">
+            <div class="stage-visual">
+              <div class="visual-box">
+                <div class="v-css-art relax-art">
+                  <div class="booking-card">
+                    <div class="bc-line primary"></div>
+                    <div class="bc-line"></div>
+                    <div class="bc-line short"></div>
+                    <div class="stamp">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><path d="M20 6 9 17l-5-5"/></svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <h3>3. Relax</h3>
+            <p>Your booking is confirmed without a single phone call. Sit back while the pro comes to you.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features (Card Hover Effect) -->
+  <section id="features" class="section hover-section">
+    <div class="container">
+      <div class="section-head text-center mb-32 relative z-10">
+        <h2 class="section-title text-dark">Features</h2>
+        <p class="section-subtitle text-muted">Everything you need to book reliable home services with ease.</p>
+      </div>
+
+      <div class="hover-effect-grid" id="hover-grid">
+        <div class="hover-cursor-bg" id="hover-cursor-bg"></div>
+
+        <!-- Card 1 -->
+        <a href="#" class="hover-card-wrapper">
+          <div class="hover-card">
+            <h4 class="hc-title">Multilingual Intent</h4>
+            <p class="hc-desc">Understands English, Urdu, and Roman Urdu natively. Generate bookings directly from
+              natural language descriptions.</p>
+          </div>
+        </a>
+
+        <!-- Card 2 -->
+        <a href="#" class="hover-card-wrapper">
+          <div class="hover-card">
+            <h4 class="hc-title">Smart Discovery</h4>
+            <p class="hc-desc">Detect exact locations and apply intelligent geospatial querying to find the nearest
+              providers instantly.</p>
+          </div>
+        </a>
+
+        <!-- Card 3 -->
+        <a href="#" class="hover-card-wrapper">
+          <div class="hover-card">
+            <h4 class="hc-title">Instant Booking</h4>
+            <p class="hc-desc">Confirm appointments and deploy reminders to professionals in seconds with zero
+              configuration.</p>
+          </div>
+        </a>
+
+        <!-- Card 4 -->
+        <a href="#" class="hover-card-wrapper">
+          <div class="hover-card">
+            <h4 class="hc-title">AI Pricing Engine</h4>
+            <p class="hc-desc">Dynamic price negotiation based on real-time market demand, weather conditions, and
+              provider availability.</p>
+          </div>
+        </a>
+
+        <!-- Card 5 -->
+        <a href="#" class="hover-card-wrapper">
+          <div class="hover-card">
+            <h4 class="hc-title">Verified Experts</h4>
+            <p class="hc-desc">Continuous AI-driven rating assessments and comprehensive background checks for all
+              service providers.</p>
+          </div>
+        </a>
+
+        <!-- Card 6 -->
+        <a href="#" class="hover-card-wrapper">
+          <div class="hover-card">
+            <h4 class="hc-title">Live Orchestration</h4>
+            <p class="hc-desc">Monitor your professional's real-time location with live ETA updates on an interactive
+              tracking map.</p>
+          </div>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Site Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-top">
+        <a href="#" class="footer-brand">
+          <img src="./Logo.png" alt="EZ Logo" class="footer-logo" />
+        </a>
+        <div class="footer-links">
+          <a href="#">Overview</a>
+          <a href="#services">Services</a>
+          <a href="#features">Features</a>
+          <a href="#">Pricing</a>
+          <a href="#">Blog</a>
+          <a href="#">Privacy</a>
+          <a href="#">Terms</a>
+        </div>
+      </div>
+
+      <div class="footer-divider"></div>
+
+      <div class="footer-bottom">
+        <div class="copyright text-muted">© 2026 EZ Home Services</div>
+        <div class="social-links">
+          <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path
+                d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5 2.8 12 2.8 12s1.4.2 2.4-.2C3 11.2 2 8 2 8s1.4.5 2.4.5C2.5 7.1 2 4 2 4s2.8 3.5 8 4.2C10.5 4.5 14 3 16 5c1.5-.5 2.5-1.5 2.5-1.5s-.5 1.5-1.5 2.5z">
+              </path>
+            </svg></a>
+          <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path>
+              <rect x="2" y="9" width="4" height="12"></rect>
+              <circle cx="4" cy="4" r="2"></circle>
+            </svg></a>
+          <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path
+                d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22">
+              </path>
+            </svg></a>
+          <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
+            </svg></a>
+          <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+              <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+              <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+            </svg></a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="/main.js"></script>
+</body>
+
+</html>

@@ -10,7 +10,7 @@ import '../models/booking.dart';
 
 /// Base URL of the FastAPI backend.
 String get _kBaseUrl {
-  return 'http://192.168.100.158:8000';
+  return 'https://ai-seekho-ez-593854821522.europe-west1.run.app';
 }
 
 const _kTokenKey = 'ez_access_token';
@@ -107,16 +107,18 @@ class ApiService {
     required String password,
     String? displayName,
   }) async {
-    final res = await http.post(
-      Uri.parse('$_kBaseUrl/api/auth/signup'),
-      headers: const {'Content-Type': 'application/json'},
-      body: json.encode({
-        'email': email,
-        'password': password,
-        if (displayName != null && displayName.isNotEmpty)
-          'display_name': displayName,
-      }),
-    );
+    final res = await http
+        .post(
+          Uri.parse('$_kBaseUrl/api/auth/signup'),
+          headers: const {'Content-Type': 'application/json'},
+          body: json.encode({
+            'email': email,
+            'password': password,
+            if (displayName != null && displayName.isNotEmpty)
+              'display_name': displayName,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
     _checkStatus(res);
     final body = json.decode(res.body) as Map<String, dynamic>;
     await _saveSession(
