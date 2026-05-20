@@ -1,0 +1,65 @@
+# Walkthrough: Agent Response Quality Overhaul
+
+## Summary
+
+Fixed the robotic "humanoid" response problem by:
+1. **Rewriting all LLM prompts** with anti-robotic measures (negative examples, banned phrases, strict sentence limits)
+2. **Adding a `response_formatter` node** that generates concise, structured responses
+3. **Adding output sanitization** to strip robotic patterns from LLM output
+4. **Updating the frontend** to use formatted messages + suggestion chips
+
+## Files Changed
+
+### Backend (6 files)
+
+| File | Change |
+|------|--------|
+| [prompts.py](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/agents/prompts.py) | Complete rewrite of all 4 prompts + new `RESPONSE_FORMATTER_SYSTEM` |
+| [state.py](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/agents/state.py) | Added `formatted_response` and `suggestions` state keys |
+| [nodes.py](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/agents/nodes.py) | Added `response_formatter` node, `_sanitize_llm_text()`, improved decision input, shorter fallbacks |
+| [graph.py](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/agents/graph.py) | Wired `response_formatter` between `decision` and `booking_step` |
+| [service_request.py (schema)](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/schemas/service_request.py) | Added `formatted_message` and `suggestions` to `AgentRunOut` |
+| [service_requests.py (router)](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/routers/service_requests.py) | Passes `formatted_response` and `suggestions` from state to response |
+
+### Frontend (3 files)
+
+| File | Change |
+|------|--------|
+| [index.html](file:///c:/Users/Hp/Desktop/QE/Hackathon/frontend/index.html) | Uses `formatted_message` for chat bubble, renders suggestion chips, updated ticker labels |
+| [style.css](file:///c:/Users/Hp/Desktop/QE/Hackathon/frontend/static/style.css) | Added `.suggestion-chip` styles with hover effects |
+| [api.js](file:///c:/Users/Hp/Desktop/QE/Hackathon/frontend/static/api.js) | Added `response_formatter` to trace color mapping |
+
+## Before vs After
+
+### Clarifier Response
+| Before | After |
+|--------|-------|
+| "Sure! Which sector are you in — like G-13 or F-10? Also, let me know what time works for you, such as today evening or tomorrow morning." | "Achha! Kis sector mein — G-13, F-10? Aur kab chahiye?" |
+
+### Decision/Booking Response  
+| Before | After |
+|--------|-------|
+| "I've found the best provider for your AC technician needs in the G-13 area. Based on proximity and rating, Ali AC Services is the most suitable option..." | "Hogaya! Ali AC Services book krdiya — 2.1 km door, 4.5★, kal 10 baje." |
+
+## New Pipeline Flow
+
+```
+intent_parser → provider_caller → tool_executor → ranking → decision → response_formatter (NEW) → booking_step → followup_step
+```
+
+The `response_formatter` node generates:
+- **`formatted_response`** — ONE concise sentence for the chat bubble
+- **`suggestions`** — 2-3 follow-up action chips (language-aware)
+
+## Anti-Robotic Measures
+
+1. **`_sanitize_llm_text()`** — Regex that strips:
+   - "Sure!", "Of course!", "I'd be happy to"
+   - "let me know", "could you please", "I have found", "based on your request"
+   - Wrapping quotes
+
+2. **Negative examples in every prompt** — Each prompt now includes 3-4 "BAD" examples showing exactly what NOT to write
+
+3. **Strict sentence limits** — Decision: 1 sentence max. Clarifier: 2 sentences max. Formatter: 15 words max.
+
+4. **Natural Roman Urdu** — Prompts enforce casual texting style, not translated English

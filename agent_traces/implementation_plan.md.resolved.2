@@ -1,0 +1,41 @@
+# Support for Informational Queries
+
+Expand the agent's capabilities to handle informational requests (e.g., "tell me about the ac techs in g12") without forcing the user into a booking flow or aggressively asking them for a preferred time. We will achieve this by differentiating between "booking" and "inquiry" intents and adding an alternative path in the agent's workflow for inquiries.
+
+## User Review Required
+
+Please review the proposed architectural changes below. This introduces a fork in the previously linear agent graph. Let me know if you approve this approach!
+
+## Proposed Changes
+
+### [MODIFY] `app/schemas/service_request.py`
+- Update `IntentParsed` to include `intent_type: Literal["book", "inquiry"]`.
+
+### [MODIFY] `app/agents/nodes.py`
+- **Schema**: Update `_IntentSchema` to include `intent_type: Literal["book", "inquiry"]`.
+- **Validation**: Update `_missing_slots()` to only require `scheduled_at` if `intent_type == "book"`.
+- **New Node**: Add `inquiry_formatter(state: AgentState) -> AgentState`. This node will take the `ranked` candidates and use the LLM to format a conversational summary (e.g., "We have 3 AC techs in G-12. Ali AC is highly rated... Would you like to book?"). It will return `status="completed"` with no booking object.
+- **Routing**: Add a `route_after_ranking(state)` function that directs the flow to `inquiry_formatter` if the intent is `"inquiry"`, or to `decision` if the intent is `"book"`.
+
+### [MODIFY] `app/agents/prompts.py`
+- **Intent System**: Instruct the LLM to classify requests as `"inquiry"` if the user is just asking for information, availability, or options without an explicit intent to book.
+- **Inquiry Formatter System**: Add a new prompt `INQUIRY_FORMATTER_SYSTEM` to instruct the LLM on how to summarize a list of providers naturally.
+
+### [MODIFY] `app/agents/graph.py`
+- Add the `inquiry_formatter` node.
+- Replace the direct edge `ranking -> decision` with a conditional edge using `route_after_ranking`.
+- Add a direct edge from `inquiry_formatter -> END`.
+
+### [MODIFY] `frontend/index.html`
+- Update the progress indicator text in `tickActivity` to be more generic, or dynamically adjust it, since we may not actually be "Booking..." if it's just an inquiry. The frontend already handles missing booking objects gracefully.
+
+## Verification Plan
+
+### Automated Tests
+- Restart the FastAPI server.
+- Monitor terminal logs to verify the `intent_parser` correctly outputs `"inquiry"` for informational prompts.
+
+### Manual Verification
+- Ask the agent "tell me about the ac tech in g12".
+- Verify the agent responds with a list of available providers and DOES NOT create a simulated booking.
+- Verify the agent's suggestion chips prompt the user to book if they wish to proceed.

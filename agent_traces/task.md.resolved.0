@@ -1,0 +1,12 @@
+# Option A: Prompt Overhaul + Response Formatter
+
+- [ ] 1. Rewrite all prompts in `prompts.py` (anti-robotic, natural tone)
+- [ ] 2. Update `state.py` — add `formatted_response`, `suggestions`
+- [ ] 3. Add `response_formatter` node in `nodes.py`
+- [ ] 4. Improve `clarifier` output sanitization in `nodes.py`
+- [ ] 5. Improve `decision` node output in `nodes.py`
+- [ ] 6. Wire `response_formatter` into `graph.py`
+- [ ] 7. Update `schemas/service_request.py` — add fields
+- [ ] 8. Update `routers/service_requests.py` — include new fields
+- [ ] 9. Update `frontend/index.html` — use formatted_message + suggestion chips
+- [ ] 10. Test end-to-end

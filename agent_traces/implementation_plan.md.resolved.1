@@ -1,0 +1,205 @@
+# ServiceMatcher Agent — ReAct Migration + Prompt Overhaul
+
+## Decision: Option B — Full ReAct Migration
+
+Based on user feedback: proceed with ReAct migration + prompt overhaul. No live Google Places API — keep seeded DB only.
+
+---
+
+## Current Architecture (Linear Pipeline)
+
+```mermaid
+graph LR
+    A[intent_parser] --> B{complete?}
+    B -->|no| C[clarifier] --> A
+    B -->|yes| D[provider_caller] --> E[tool_executor] --> F[ranking] --> G[decision] --> H[booking_step] --> I[followup_step]
+```
+
+## New Architecture (ReAct + Response Formatter)
+
+```mermaid
+graph TD
+    START --> intent_parser
+    intent_parser -->|incomplete| clarifier
+    clarifier -->|interrupt/resume| intent_parser
+    intent_parser -->|complete| react_agent
+    react_agent -->|tool_call| tool_executor
+    tool_executor --> react_agent
+    react_agent -->|final answer| response_formatter
+    response_formatter --> booking_step
+    booking_step --> followup_step
+    followup_step --> END
+```
+
+**Key difference:** The middle section (provider discovery → ranking → decision) becomes a ReAct loop where the LLM dynamically decides which tools to call and when to stop. This produces genuine agentic reasoning in the trace.
+
+---
+
+## Risk Mitigation
+
+| Risk | Mitigation |
+|------|-----------|
+| Checkpoint schema break | Clear `langgraph_checkpoints` table before deploy |
+| ReAct loop gets stuck | `max_iterations=4` hard cap + timeout |
+| Higher latency (2-4 LLM calls) | Acceptable for demo; use `gemini-2.0-flash` (fast) |
+| Debugging under pressure | Full trace logging preserved in every node |
+
+---
+
+## Proposed Changes
+
+### Component 1: Prompt Engineering Overhaul
+
+#### [MODIFY] [prompts.py](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/agents/prompts.py)
+
+Complete rewrite of all prompts with anti-robotic measures:
+
+1. **`INTENT_SYSTEM`** — Add more Urdu/Roman Urdu examples, edge cases for partial input
+2. **`CLARIFIER_SYSTEM`** — Tighten to prevent "Sure! Which sector..." pattern. Add negative examples. Make Roman Urdu sound like actual texting
+3. **`DECISION_SYSTEM`** → replaced by **`REACT_SYSTEM`** — The ReAct agent's system prompt that handles provider discovery + ranking + decision in one loop
+4. **`PROVIDER_SYSTEM`** → removed (merged into ReAct agent)
+5. **New: `RESPONSE_FORMATTER_SYSTEM`** — Structures the final message with anti-robotic constraints
+
+**Anti-robotic prompt design:**
+- Every prompt includes negative examples ("DON'T write like this")
+- Maximum sentence counts enforced
+- Specific banned phrases: "I've found", "Based on your request", "I'd be happy to"
+- Roman Urdu must sound like Pakistani texting, not translated English
+
+---
+
+### Component 2: State Updates
+
+#### [MODIFY] [state.py](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/agents/state.py)
+
+Add new keys for ReAct output:
+- `react_messages: list` — Message thread from the ReAct sub-agent
+- `formatted_response: str | None` — Final user-facing message text
+
+---
+
+### Component 3: Tools Consolidation
+
+#### [MODIFY] [tools.py](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/agents/tools.py)
+
+1. **New: `search_and_rank_providers`** — Merges `find_providers` + `rank_providers` into one tool. The ReAct agent calls this once and gets back ranked results with distance, rating, availability scores. Reduces unnecessary round-trips.
+
+2. **New: `check_availability`** — Quick check if a specific provider is available at the requested time. Lets the ReAct agent verify before recommending.
+
+3. **Keep `find_providers`** as-is (still used by ToolNode for backward compat if needed)
+
+4. **All DB write tools unchanged** — `insert_booking`, `insert_agent_trace`, `insert_notification`, `upsert_conversation`
+
+---
+
+### Component 4: Graph Restructure
+
+#### [MODIFY] [graph.py](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/agents/graph.py)
+
+Replace the linear pipeline with:
+
+```python
+# Nodes
+g.add_node("intent_parser",       N.intent_parser)
+g.add_node("clarifier",           N.clarifier)
+g.add_node("react_agent",         N.react_agent)        # NEW: ReAct loop
+g.add_node("response_formatter",  N.response_formatter) # NEW: structures output
+g.add_node("booking_step",        N.booking_step)
+g.add_node("followup_step",       N.followup_step)
+
+# Edges
+START → intent_parser
+intent_parser → clarifier | react_agent  (conditional)
+clarifier → intent_parser
+react_agent → response_formatter
+response_formatter → booking_step
+booking_step → followup_step
+followup_step → END
+```
+
+**Removed nodes:** `provider_caller`, `tool_executor` (ToolNode), `ranking`, `decision` — all absorbed into `react_agent`
+
+---
+
+### Component 5: Node Refactor
+
+#### [MODIFY] [nodes.py](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/agents/nodes.py)
+
+**Removed:**
+- `provider_caller` — LLM was adding no value calling `find_providers` with known args
+- `decision` — Absorbed into ReAct agent's final answer
+- `route_after_tool_executor` — No separate ToolNode anymore
+
+**Modified:**
+- `intent_parser` — Simplified state return (no more `{**state, ...}` copying)
+- `clarifier` — Output sanitization to strip quotes, preambles, "As an AI" patterns
+- `booking_step` — Reads selected provider from ReAct output instead of separate `selected` key
+
+**New:**
+- `react_agent` — Invokes a ReAct sub-graph with `search_and_rank_providers` + `check_availability` tools. The LLM reasons about which provider to recommend, tries nearby sectors if needed, and produces a final answer.
+- `response_formatter` — Takes the ReAct agent's raw output and generates a structured `FormattedResponse`:
+  ```python
+  class FormattedResponse(BaseModel):
+      message: str      # 1-2 sentences, natural, cites specifics
+      suggestions: list[str]  # 2-3 follow-up suggestions
+  ```
+
+---
+
+### Component 6: Router Updates
+
+#### [MODIFY] [service_requests.py](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/routers/service_requests.py)
+
+- Update `_build_response` to include `formatted_response` in the API output
+- The `reasoning` field now comes from the ReAct agent's actual chain-of-thought
+
+#### [MODIFY] [service_request.py (schema)](file:///c:/Users/Hp/Desktop/QE/Hackathon/backend/app/schemas/service_request.py)
+
+- Add `formatted_message: str | None` to `AgentRunOut`
+- Add `suggestions: list[str] | None` to `AgentRunOut`
+
+---
+
+### Component 7: Frontend Updates
+
+#### [MODIFY] [index.html](file:///c:/Users/Hp/Desktop/QE/Hackathon/frontend/index.html)
+
+- Use `formatted_message` as the chat bubble text (instead of raw `reasoning`)
+- Render `suggestions` as clickable chips after the booking card
+- Show ReAct reasoning steps in the trace timeline
+
+---
+
+## Verification Plan
+
+### Automated Tests
+```bash
+# Start the backend
+cd backend && uvicorn app.main:app --reload --port 8000
+
+# Test 1: Full flow (Roman Urdu)
+curl -X POST http://localhost:8000/api/service-requests \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Mujhe kal subah G-13 mein AC technician chahiye"}'
+
+# Test 2: Full flow (English)  
+curl -X POST ... -d '{"text": "I need a plumber in F-10 tomorrow at 9am"}'
+
+# Test 3: Clarification flow
+curl -X POST ... -d '{"text": "AC chahiye"}'
+# Resume with details
+curl -X POST ... -d '{"text": "G-13 mein, kal subah", "conversation_id": "<id>"}'
+
+# Test 4: No providers found (edge case)
+curl -X POST ... -d '{"text": "I need a tutor in Z-99 right now"}'
+```
+
+### Quality Checks
+- [ ] Response is ≤ 2 sentences (not a paragraph)
+- [ ] Roman Urdu sounds like natural texting
+- [ ] No "I've found" / "Based on your request" / "I'd be happy to" in output
+- [ ] Booking card renders correctly
+- [ ] Trace timeline shows ReAct reasoning steps
+- [ ] Clarifier asks for ALL missing slots in one message
+- [ ] Follow-up suggestions appear after booking

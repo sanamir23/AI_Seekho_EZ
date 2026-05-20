@@ -1,0 +1,34 @@
+# Require Explicit Provider Selection Before Booking
+
+Currently, the agent automatically selects the highest-ranked provider and only asks the user for the missing time. The goal is to change this workflow so that the agent always presents the available providers (up to 3) to the user, and explicitly asks them *which* provider they want to book and *when*.
+
+## User Review Required
+
+> [!WARNING]
+> This changes the UX from an "auto-booking" assistant to a "concierge" assistant. 
+> The user will always have to confirm which provider they want, even if there is only 1 available. E.g. "I found Abbasi Electric! Do you want to book them, and when?".
+
+## Proposed Changes
+
+### `app/schemas/service_request.py`
+#### [MODIFY] service_request.py
+- Add `selected_provider: str | None = None` to the `IntentParsed` schema.
+
+### `app/agents/nodes.py`
+#### [MODIFY] nodes.py
+- **`_IntentSchema`**: Add `selected_provider` to the structured output model.
+- **`route_after_ranking`**: Update the logic for bookings. Instead of just checking if `scheduled_at` is missing, it will now check if `scheduled_at` OR `selected_provider` is missing. If either is missing, it routes to `clarifier`.
+- **`decision` node**: Update this node. Instead of automatically picking `ranked[0]`, it will use the LLM (or simple string matching) to match the user's `selected_provider` string against the names in the `ranked` list to properly set `state["selected"]`.
+
+### `app/agents/prompts.py`
+#### [MODIFY] prompts.py
+- **`INTENT_SYSTEM`**: Add rules and examples for extracting `selected_provider`. E.g. If the user says "the first one" or "book Ali", it extracts "the first one" or "Ali".
+- **`CLARIFIER_SYSTEM`**: Update the instructions for when providers are found. The LLM must now list *all* found providers (up to 3) by name and rating, and ask the user *which one* they want to select AND what time they need them.
+
+## Verification Plan
+
+### Manual Verification
+1. I will ask the agent for a service in an area where providers exist.
+2. The agent should list up to 3 providers and ask me to select one and provide a time.
+3. I will reply with "the second one tomorrow".
+4. The agent should correctly parse "the second one", match it to the correct provider in the `decision` node, and complete the booking.

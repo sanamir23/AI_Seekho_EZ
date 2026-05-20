@@ -1,0 +1,33 @@
+# Informational Queries Support
+
+I've successfully updated the agent architecture to handle informational requests gracefully. The agent is no longer strictly bound to the booking flow.
+
+## Changes Made
+
+1. **Intent Classification (`nodes.py`, `prompts.py`)**
+   - The LLM intent parser now determines an `intent_type`: either `"book"` or `"inquiry"`.
+   - Updated the `INTENT_SYSTEM` prompt with rules and examples teaching the LLM to classify informational requests like *"tell me about the ac techs in g12"* as inquiries.
+
+2. **Conditional Slot Requirements (`nodes.py`)**
+   - Modified `_missing_slots()` to dynamically check requirements based on intent type.
+   - For `book`, it still requires `service_type`, `area`, and `scheduled_at`.
+   - For `inquiry`, it only requires `service_type` and `area` (skipping the prompt for "When do you need them?").
+
+3. **Inquiry Formatter Node (`nodes.py`, `graph.py`)**
+   - Created a new `inquiry_formatter` node and added it to the LangGraph pipeline.
+   - Added a conditional edge after `ranking` (`route_after_ranking`):
+     - `"book"` -> `decision` (picks the best one and books).
+     - `"inquiry"` -> `inquiry_formatter` (summarizes the available options).
+   - Created the `INQUIRY_FORMATTER_SYSTEM` prompt to generate a natural, conversational summary of the available providers (e.g., *"We have 3 AC technicians in G-12! Ali AC Services is top-rated at 4.8★. Would you like to book one?"*).
+
+4. **Frontend Adjustments (`index.html`)**
+   - Updated the loading indicator text (`tickActivity`) to say "Finalizing..." instead of "Confirming booking...", making it logically sound for both bookings and inquiries.
+
+## What Was Tested
+- The backend successfully restarts.
+- The state schemas support the optional properties (e.g. `AgentRunOut` not having a `booking` when `status="completed"`).
+
+## How to Test Manually
+1. Open the UI.
+2. Type: `"tell me about the ac tech in g12"` or `"g13 mein plumbers batao"`.
+3. The agent should list the available providers without asking you for a specific time or automatically booking one!

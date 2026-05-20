@@ -1,0 +1,18 @@
+# Explicit Provider Selection Workflow
+
+The agent has been updated to act as a concierge rather than an auto-booker. It will now present the user with up to 3 provider options and explicitly ask them to choose one before proceeding with a booking.
+
+## Changes Made
+
+- **Intent Parsing**: Upgraded the `intent_parser` to keep track of the `last_agent_msg` so the LLM has context when the user says something like "the first one" or "book Ali". The `IntentParsed` schema now supports a `selected_provider` field.
+- **Routing Logic**: Updated `route_after_ranking` in `nodes.py`. The graph will now pause at the clarifier not just when the `scheduled_at` time is missing, but also when `selected_provider` is missing.
+- **Prompt Engineering**:
+    - `CLARIFIER_SYSTEM` now instructs the LLM to list all found providers (up to 3) and explicitly ask the user which one they'd like to select.
+    - `INTENT_SYSTEM` now has rules to extract the `selected_provider` name if the user answers the clarifier's question.
+- **Decision Engine**: Instead of blindly selecting `ranked[0]`, the `decision` node will now look at `intent["selected_provider"]` and perform a fuzzy string match against the names of the top 3 ranked providers to ensure the correct provider is booked.
+
+## How to Test
+1. Send a request like: *"I need an AC technician in G-13"*
+2. The agent will reply: *"I found Abbasi Electric & AC Repair Center (4.9★)! Would you like to book them, and if so, when?"*
+3. Reply with: *"Yes, book them for tomorrow morning"*
+4. The agent should successfully parse "Abbasi Electric" as the `selected_provider` and finalize the booking.

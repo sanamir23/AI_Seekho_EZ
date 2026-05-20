@@ -1,0 +1,6 @@
+{
+  "artifactType":  "ARTIFACT_TYPE_WALKTHROUGH",
+  "summary":  "Walkthrough detailing how the new voice transcription feature was implemented using Gemini 1.5 Pro and integrated into the existing LangGraph workflow.",
+  "updatedAt":  "2026-05-17T20:17:16.222992900Z",
+  "version":  "3"
+}
