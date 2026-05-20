@@ -10,6 +10,7 @@ import '../../core/services/api_service.dart';
 import '../composer/chat_screen.dart';
 import '../auth/auth_screen.dart';
 import 'bookings_tab.dart';
+import '../notifications/notifications_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -169,29 +170,37 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ),
                                         const Spacer(),
                                         // Bell
-                                        _IconCircleBtn(
-                                          child: Stack(
-                                            children: [
-                                              const Icon(
-                                                  Icons.notifications_outlined,
-                                                  size: 20,
-                                                  color: EzColors.ink),
-                                              Positioned(
-                                                top: 1,
-                                                right: 1,
-                                                child: Container(
-                                                  width: 7,
-                                                  height: 7,
-                                                  decoration: BoxDecoration(
-                                                    color: EzColors.yellowDeep,
-                                                    shape: BoxShape.circle,
-                                                    border: Border.all(
-                                                        color: EzColors.white,
-                                                        width: 1.5),
+                                        GestureDetector(
+                                          onTap: () => Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                                builder: (_) =>
+                                                    const NotificationsScreen()),
+                                          ),
+                                          child: _IconCircleBtn(
+                                            child: Stack(
+                                              children: [
+                                                const Icon(
+                                                    Icons.notifications_outlined,
+                                                    size: 20,
+                                                    color: EzColors.ink),
+                                                Positioned(
+                                                  top: 1,
+                                                  right: 1,
+                                                  child: Container(
+                                                    width: 7,
+                                                    height: 7,
+                                                    decoration: BoxDecoration(
+                                                      color: EzColors.yellowDeep,
+                                                      shape: BoxShape.circle,
+                                                      border: Border.all(
+                                                          color: EzColors.white,
+                                                          width: 1.5),
+                                                    ),
                                                   ),
                                                 ),
-                                              ),
-                                            ],
+                                              ],
+                                            ),
                                           ),
                                         ),
                                         const SizedBox(width: 8),
