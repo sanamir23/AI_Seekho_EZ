@@ -167,6 +167,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _toggleRecording() async {
+    // Ignore taps while a send/transcription is in flight — otherwise tapping
+    // the mic mid-transcription kicks off a second recording over the first.
+    if (_isSending && !_isRecording) return;
     try {
       if (_isRecording) {
         final path = await _record.stop();
@@ -606,7 +609,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                       _ToolBtn(icon: Icons.location_on_outlined),
                       const Spacer(),
                       GestureDetector(
-                        onTap: _toggleRecording,
+                        onTap:
+                            (_isSending && !_isRecording) ? null : _toggleRecording,
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
                           width: 36,
