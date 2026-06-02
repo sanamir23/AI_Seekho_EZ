@@ -141,7 +141,7 @@ class ApiService {
           headers: const {'Content-Type': 'application/json'},
           body: json.encode({'email': email, 'password': password}),
         )
-        .timeout(const Duration(seconds: 10));
+        .timeout(const Duration(seconds: 30));
     _checkStatus(res);
     final body = json.decode(res.body) as Map<String, dynamic>;
     await _saveSession(
