@@ -242,6 +242,54 @@ def _resolve_provider(selected_name: str | None, ranked: list[dict]) -> dict | N
     return None
 
 
+# Generic words that carry no identifying signal when matching a user's reply to
+# a provider name (category/location nouns + Roman-Urdu "book it" filler).
+_PROVIDER_NAME_STOPWORDS = {
+    "the", "and", "a", "an", "of", "ac", "hvac", "services", "service",
+    "islamabad", "technician", "technicians", "electrician", "electric",
+    "electrition", "plumber", "plumbing", "tutor", "tuition", "beautician",
+    "beauty", "salon", "co", "company", "pvt", "ltd", "shop", "center", "centre",
+    "book", "karna", "karwa", "karwana", "karo", "kardo", "krna", "krdo", "kar",
+    "do", "hai", "hain", "wala", "wali", "walay", "chahiye", "chahiyay",
+    "please", "mujhe", "mujhay", "ko", "yeh", "ye", "is", "one", "number",
+}
+
+
+def _match_reply_to_provider(reply: str, ranked: list[dict]) -> dict | None:
+    """Map a free-text user reply to one of the ranked providers.
+
+    The clarifier's numbered list is never written to the message thread, so the
+    intent LLM has no list to map a name/ordinal onto and frequently returns
+    ``selected_provider=None`` — which routes straight back to the clarifier and
+    re-shows the same list (the infinite loop). This deterministic net resolves
+    the selection from the user's own words instead:
+
+    1. ordinals / positional referents ("the second one", "dosra") via
+       :func:`_resolve_provider`;
+    2. distinctive name-token overlap, so "Cool Line book karna hai" maps to
+       "Cool Line HVAC Islamabad" even though neither string contains the other.
+    """
+    if not reply or not ranked:
+        return None
+    ordinal = _resolve_provider(reply, ranked)
+    if ordinal:
+        return ordinal
+    reply_tokens = set(re.findall(r"[a-z]+", reply.lower())) - _PROVIDER_NAME_STOPWORDS
+    if not reply_tokens:
+        return None
+    best: dict | None = None
+    best_score = 0
+    for p in ranked:
+        name_tokens = (
+            set(re.findall(r"[a-z]+", (p.get("name") or "").lower()))
+            - _PROVIDER_NAME_STOPWORDS
+        )
+        score = len(reply_tokens & name_tokens)
+        if score > best_score:
+            best, best_score = p, score
+    return best if best_score >= 1 else None
+
+
 def _provider_brief(p: dict) -> dict:
     return {
         "id": p["id"],
@@ -287,11 +335,15 @@ def intent_parser(state: AgentState) -> dict:
     user_text = state["input_text"]
     replies = state.get("clarification_context") or []
 
-    last_agent_msg = ""
-    for msg in reversed(state.get("messages") or []):
-        if isinstance(msg, AIMessage) and msg.content:
-            last_agent_msg = msg.content
-            break
+    # Prefer the clarifier's last question — it holds the numbered provider list
+    # that the LLM must map a reply like "Cool Line" or "the second one" onto.
+    # It is never written to `messages`, so fall back to the thread only if unset.
+    last_agent_msg = (state.get("question") or "").strip()
+    if not last_agent_msg:
+        for msg in reversed(state.get("messages") or []):
+            if isinstance(msg, AIMessage) and msg.content:
+                last_agent_msg = msg.content
+                break
 
     if replies or last_agent_msg:
         parts = [f"Original request: {user_text}"]
@@ -358,21 +410,33 @@ def intent_parser(state: AgentState) -> dict:
 
     prior = state.get("intent") or {}
     merged = {**prior, **{k: v for k, v in new.items() if v is not None}}
+    # A change of area or service invalidates any earlier provider pick.
+    pivoted = False
     if new.get("area") and new["area"] != prior.get("area"):
         merged["selected_provider"] = None
+        pivoted = True
     if new.get("service_type") and new["service_type"] != prior.get("service_type"):
         merged["selected_provider"] = None
+        pivoted = True
     merged["confidence"] = new["confidence"]
     merged["language"] = new["language"] or prior.get("language")
     merged["intent_type"] = new["intent_type"] or prior.get("intent_type", "book")
 
+    # Resolve the provider selection against the ranked list. The LLM often
+    # misses this (it never sees the numbered list), so when it leaves
+    # selected_provider empty we map the user's own reply onto a ranked provider
+    # — otherwise the graph routes back to the clarifier and re-shows the same
+    # list forever. Skipped on a pivot, where the pick was intentionally cleared.
     ranked = state.get("ranked") or []
-    if merged.get("selected_provider") and ranked:
-        resolved = _resolve_provider(merged["selected_provider"], ranked)
-        if resolved:
-            merged["selected_provider"] = resolved["name"]
-        else:
-            merged["selected_provider"] = None
+    if ranked and not pivoted:
+        candidate = merged.get("selected_provider")
+        resolved = _resolve_provider(candidate, ranked) if candidate else None
+        if not resolved:
+            latest_reply = (
+                state.get("clarification_context") or [state.get("input_text", "")]
+            )[-1]
+            resolved = _match_reply_to_provider(latest_reply, ranked)
+        merged["selected_provider"] = resolved["name"] if resolved else None
 
     log.info(
         "  parsed → type=%s svc=%s area=%s time=%s conf=%.2f",
@@ -663,14 +727,23 @@ def no_results_handler(state: AgentState) -> dict:
         except Exception as e:
             log.warning("  waitlist insert failed: %s", e)
 
-    # Autonomous: if there are nearby areas with providers, auto-expand instead of asking.
-    nearby = [a for a in available if str(a).lower() != str(area or "").lower()]
+    # Autonomous: if there are nearby areas with providers, auto-expand instead
+    # of asking. Exclude every area we've already tried this conversation —
+    # otherwise two empty areas ping-pong forever (nearby[0] → other → back).
+    tried = {str(area or "").lower()}
+    for c in state.get("clarification_context") or []:
+        tried.add(str(c).lower())
+        a = _extract_area(str(c))
+        if a:
+            tried.add(a.lower())
+    nearby = [a for a in available if str(a).lower() not in tried]
     if nearby:
         auto_area = nearby[0]
         log.info("  auto-expanding search from %s to %s", area, auto_area)
         new_intent = {**intent, "area": auto_area, "selected_provider": None}
         return {"intent": new_intent, "auto_search_area": auto_area}
 
+    # Nothing left to auto-try → let the clarifier ask the user (real interrupt).
     return {}
 
 
@@ -1014,6 +1087,10 @@ def clarifier(state: AgentState) -> dict:
         })
         extra = list(state.get("clarification_context") or []) + [auto_area]
         return {
+            # Count the auto-expand as a clarify round so route_after_clarifier's
+            # MAX_CLARIFY_ROUNDS guard still bounds this path — it skips the
+            # interrupt, so without this the loop could bypass the cap entirely.
+            "clarify_rounds": rounds + 1,
             "auto_search_area": None,
             "clarification_context": extra,
             "question": question,
