@@ -10,7 +10,7 @@ import '../models/booking.dart';
 
 /// Base URL of the FastAPI backend.
 String get _kBaseUrl {
-  return 'http://192.168.100.158:8000';
+  return 'http://192.168.18.150:8000';
 }
 
 const _kTokenKey = 'ez_access_token';
@@ -221,7 +221,10 @@ class ApiService {
       req.files.add(await http.MultipartFile.fromPath(
         'file',
         audioFile.path,
-        contentType: MediaType('audio', 'mp4'),
+        // The `record` package's default RecordConfig produces AAC-LC in an
+        // .m4a container. Gemini accepts audio/m4a but is flaky with audio/mp4,
+        // so label it explicitly as m4a.
+        contentType: MediaType('audio', 'm4a'),
       ));
       final streamed = await req.send().timeout(const Duration(seconds: 30));
       final res = await http.Response.fromStream(streamed);

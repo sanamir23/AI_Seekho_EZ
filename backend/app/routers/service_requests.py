@@ -30,6 +30,11 @@ log = logging.getLogger("agent")
 
 router = APIRouter(prefix="/service-requests", tags=["agent"])
 
+# Pinned transcription model — intentionally NOT read from settings/.env.
+# The gemini-2.0-* models return quota limit:0 on the current key; this alias
+# has quota and supports audio input.
+_TRANSCRIBE_MODEL = "gemini-flash-latest"
+
 # Per-user in-memory rate limit: 30 requests / 60 seconds. Good enough for a
 # hackathon demo without bringing in slowapi/redis.
 _RATE_WINDOW_S = 60
@@ -372,16 +377,40 @@ async def transcribe_audio(
         genai.configure(api_key=settings.gemini_api_key)
 
         content = await file.read()
-        model = genai.GenerativeModel(settings.gemini_model)
+
+        # Normalize the upload MIME. Flutter sends AAC-in-m4a; Gemini is flaky
+        # with "audio/mp4" but reliable with "audio/m4a"/"audio/aac". Anything
+        # missing or mp4-ish is coerced to a type Gemini handles cleanly.
+        mime = (file.content_type or "").lower()
+        if mime in ("", "application/octet-stream", "audio/mp4", "video/mp4"):
+            mime = "audio/m4a"
+
+        # Model is pinned to the latest flash alias on purpose — it has quota on
+        # this key and supports audio, unlike the gemini-2.0-* models. Do NOT
+        # read this from settings/.env.
+        model = genai.GenerativeModel(_TRANSCRIBE_MODEL)
         response = model.generate_content([
             "Transcribe the following audio accurately in its original language "
             "(e.g., Roman Urdu, Urdu, or English). Do not add any extra text, "
             "markdown formatting, or translation, just the raw transcription. "
             "If the audio is empty or you cannot hear anything, return nothing.",
-            {"mime_type": file.content_type, "data": content},
+            {"mime_type": mime, "data": content},
         ])
-        text = response.text.strip()
-        log.info("Transcribed for user %s: %s", user.id, text)
+
+        # `response.text` raises ValueError when the model returns no parts
+        # (silence, too-short clip, or a safety block). Treat that as "no
+        # transcription" and return an empty string instead of a 500.
+        text = ""
+        try:
+            text = (response.text or "").strip()
+        except (ValueError, AttributeError):
+            try:
+                parts = response.candidates[0].content.parts
+                text = "".join(getattr(p, "text", "") or "" for p in parts).strip()
+            except Exception:
+                text = ""
+
+        log.info("Transcribed for user %s: %r", user.id, text)
         return {"text": text}
     except Exception as e:
         log.error("Audio transcription failed: %s", e)
