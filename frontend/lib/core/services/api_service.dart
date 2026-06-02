@@ -230,13 +230,14 @@ class ApiService {
       final token = await getToken();
       final req = http.MultipartRequest('POST', uri);
       if (token != null) req.headers['Authorization'] = 'Bearer $token';
-      req.files.add(
-        await http.MultipartFile.fromPath(
-          'file',
-          audioFile.path,
-          contentType: MediaType('audio', 'mp4'),
-        ),
-      );
+      req.files.add(await http.MultipartFile.fromPath(
+        'file',
+        audioFile.path,
+        // The `record` package's default RecordConfig produces AAC-LC in an
+        // .m4a container. Gemini accepts audio/m4a but is flaky with audio/mp4,
+        // so label it explicitly as m4a.
+        contentType: MediaType('audio', 'm4a'),
+      ));
       final streamed = await req.send().timeout(const Duration(seconds: 30));
       final res = await http.Response.fromStream(streamed);
       debugPrint('[EZ] transcribeAudio status=${res.statusCode}');
